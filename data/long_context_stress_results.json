@@ -1,0 +1,80 @@
+[
+  {
+    "depth": "前部 (10% 深度)",
+    "char_length": 4403,
+    "target": "isolate_network_switch",
+    "laya_result": {
+      "choice": "ignore",
+      "confidence": 0.0413,
+      "error": null,
+      "time_ms": 16663.79
+    },
+    "s1_result": {
+      "selected": "isolate_network_switch: 紧急切断核心交换机物理网络连接",
+      "selected_index": 1,
+      "is_correct": true,
+      "confidence": 0.7148,
+      "escalate_risk": 1.0,
+      "verdict": "reject",
+      "time_ms": 467.15,
+      "probs": {
+        "restart_cluster_nodes: 重启整个分布式计算节点集群": 0.1641,
+        "isolate_network_switch: 紧急切断核心交换机物理网络连接": 0.7148,
+        "ignore_and_continue: 告警级别低，忽略并保持运行": 0.0708,
+        "export_error_log: 将错误日志导出至本地磁盘": 0.05
+      }
+    }
+  },
+  {
+    "depth": "中部 (50% 深度 - 审稿人重点测试 Lost-in-the-Middle 缺陷)",
+    "char_length": 4402,
+    "target": "isolate_network_switch",
+    "laya_result": {
+      "choice": "isolate",
+      "confidence": 0.0682,
+      "error": null,
+      "time_ms": 48.14
+    },
+    "s1_result": {
+      "selected": "isolate_network_switch: 紧急切断核心交换机物理网络连接",
+      "selected_index": 1,
+      "is_correct": true,
+      "confidence": 0.7617,
+      "escalate_risk": 1.0,
+      "verdict": "reject",
+      "time_ms": 359.36,
+      "probs": {
+        "restart_cluster_nodes: 重启整个分布式计算节点集群": 0.1367,
+        "isolate_network_switch: 紧急切断核心交换机物理网络连接": 0.7617,
+        "ignore_and_continue: 告警级别低，忽略并保持运行": 0.0537,
+        "export_error_log: 将错误日志导出至本地磁盘": 0.0459
+      }
+    }
+  },
+  {
+    "depth": "后部 (90% 深度)",
+    "char_length": 4402,
+    "target": "isolate_network_switch",
+    "laya_result": {
+      "choice": "isolate",
+      "confidence": 0.0682,
+      "error": null,
+      "time_ms": 50.37
+    },
+    "s1_result": {
+      "selected": "isolate_network_switch: 紧急切断核心交换机物理网络连接",
+      "selected_index": 1,
+      "is_correct": true,
+      "confidence": 0.832,
+      "escalate_risk": 1.0,
+      "verdict": "reject",
+      "time_ms": 370.28,
+      "probs": {
+        "restart_cluster_nodes: 重启整个分布式计算节点集群": 0.1094,
+        "isolate_network_switch: 紧急切断核心交换机物理网络连接": 0.832,
+        "ignore_and_continue: 告警级别低，忽略并保持运行": 0.0251,
+        "export_error_log: 将错误日志导出至本地磁盘": 0.0322
+      }
+    }
+  }
+]

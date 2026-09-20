@@ -1,0 +1,449 @@
+{
+  "total": 16,
+  "correct_count": 12,
+  "accuracy": 0.75,
+  "records": [
+    {
+      "id": "office_01",
+      "category": "办公工具路由",
+      "state": "用户说：请把上个季度各大区销售额汇总表以 Excel 形式生成，并标注出同比下滑的部门。",
+      "question": "系统接下来应该调度哪项核心能力？",
+      "options": [
+        "excel_generator: 数据聚合计算并格式化生成结构化电子表格",
+        "web_search: 在公共互联网上检索公开资讯",
+        "calendar_event: 创建团队日程会议与提醒",
+        "voice_recording: 开启本地麦克风录音"
+      ],
+      "target_label": "excel_generator",
+      "selected_option": "excel_generator: 数据聚合计算并格式化生成结构化电子表格",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9805,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "excel_generator: 数据聚合计算并格式化生成结构化电子表格"
+      ],
+      "latency_ms": 1015.18,
+      "probabilities": {
+        "excel_generator: 数据聚合计算并格式化生成结构化电子表格": 0.9805,
+        "web_search: 在公共互联网上检索公开资讯": 0.0048,
+        "calendar_event: 创建团队日程会议与提醒": 0.0096,
+        "voice_recording: 开启本地麦克风录音": 0.005
+      }
+    },
+    {
+      "id": "office_02",
+      "category": "办公工具路由",
+      "state": "用户说：帮我在明天下班前给项目攻坚组全员发送一条飞书加急通知，提醒大家提交周报。",
+      "question": "应该调用哪一个协作工具？",
+      "options": [
+        "calculator: 执行四则数学公式运算",
+        "im_bot_notify: 通过企业即时通讯（飞书/企微）机器人发送群通知",
+        "excel_generator: 生成电子表格文件",
+        "pdf_watermark: 给本地文档添加防泄密水印"
+      ],
+      "target_label": "im_bot_notify",
+      "selected_option": "im_bot_notify: 通过企业即时通讯（飞书/企微）机器人发送群通知",
+      "selected_index": 1,
+      "target_index": 1,
+      "is_correct": true,
+      "confidence": 1.0,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "im_bot_notify: 通过企业即时通讯（飞书/企微）机器人发送群通知"
+      ],
+      "latency_ms": 603.06,
+      "probabilities": {
+        "calculator: 执行四则数学公式运算": 0.0005,
+        "im_bot_notify: 通过企业即时通讯（飞书/企微）机器人发送群通知": 1.0,
+        "excel_generator: 生成电子表格文件": 0.0,
+        "pdf_watermark: 给本地文档添加防泄密水印": 0.0
+      }
+    },
+    {
+      "id": "office_03",
+      "category": "办公工具路由",
+      "state": "用户说：根据这两组实验数据，用 Python 的 seaborn 库绘制一个散点回归拟合图。",
+      "question": "应该调用哪个工具？",
+      "options": [
+        "code_interpreter: 在沙盒环境中执行代码并生成可视化图表",
+        "im_bot_notify: 发送企业群通知",
+        "calendar_event: 创建会议日程",
+        "voice_recording: 开启录音"
+      ],
+      "target_label": "code_interpreter",
+      "selected_option": "code_interpreter: 在沙盒环境中执行代码并生成可视化图表",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9961,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "code_interpreter: 在沙盒环境中执行代码并生成可视化图表"
+      ],
+      "latency_ms": 559.04,
+      "probabilities": {
+        "code_interpreter: 在沙盒环境中执行代码并生成可视化图表": 0.9961,
+        "im_bot_notify: 发送企业群通知": 0.001,
+        "calendar_event: 创建会议日程": 0.0008,
+        "voice_recording: 开启录音": 0.0006
+      }
+    },
+    {
+      "id": "office_04",
+      "category": "办公工具路由",
+      "state": "用户说：明天下午三点约人事部张经理在第三会议室进行绩效沟通，帮我占下会议室。",
+      "question": "应该选择哪个工具？",
+      "options": [
+        "web_search: 搜索互联网网页",
+        "code_interpreter: 运行数据分析脚本",
+        "calendar_event: 预订会议室并创建日历日程事件",
+        "excel_generator: 制作销售电子表格"
+      ],
+      "target_label": "calendar_event",
+      "selected_option": "calendar_event: 预订会议室并创建日历日程事件",
+      "selected_index": 2,
+      "target_index": 2,
+      "is_correct": true,
+      "confidence": 0.9961,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "calendar_event: 预订会议室并创建日历日程事件"
+      ],
+      "latency_ms": 344.56,
+      "probabilities": {
+        "web_search: 搜索互联网网页": 0.0,
+        "code_interpreter: 运行数据分析脚本": 0.002,
+        "calendar_event: 预订会议室并创建日历日程事件": 0.9961,
+        "excel_generator: 制作销售电子表格": 0.0
+      }
+    },
+    {
+      "id": "office_05",
+      "category": "办公工具路由",
+      "state": "用户说：查一下我们公司知识库里关于‘出差餐补与住宿报销标准’的内部制度规定。",
+      "question": "应该调用哪个模块？",
+      "options": [
+        "enterprise_rag_search: 检索企业私有向量知识库与制度文档",
+        "calculator: 计算数学数值公式",
+        "im_bot_notify: 发送工作群通知",
+        "excel_generator: 生成表格"
+      ],
+      "target_label": "enterprise_rag_search",
+      "selected_option": "enterprise_rag_search: 检索企业私有向量知识库与制度文档",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 1.0,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "enterprise_rag_search: 检索企业私有向量知识库与制度文档"
+      ],
+      "latency_ms": 617.22,
+      "probabilities": {
+        "enterprise_rag_search: 检索企业私有向量知识库与制度文档": 1.0,
+        "calculator: 计算数学数值公式": 0.0003,
+        "im_bot_notify: 发送工作群通知": 0.0003,
+        "excel_generator: 生成表格": 0.0002
+      }
+    },
+    {
+      "id": "dialogue_01",
+      "category": "多轮对话完整性",
+      "state": "[助手]: 请问您需要查询哪天的门票？\n[用户]: 嗯……我想想啊，大概是下周三……或者是……",
+      "question": "结合语境，用户是否已经表达完毕？",
+      "options": [
+        "incomplete: 处于犹豫思考或话语未完状态，系统应保持静默等待",
+        "complete: 语义表达清晰闭合，系统应立即切断麦克风响应",
+        "clarification: 语义存在矛盾，需要主动反问打断"
+      ],
+      "target_label": "incomplete",
+      "selected_option": "clarification: 语义存在矛盾，需要主动反问打断",
+      "selected_index": 2,
+      "target_index": 0,
+      "is_correct": false,
+      "confidence": 0.6172,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 489.97,
+      "probabilities": {
+        "incomplete: 处于犹豫思考或话语未完状态，系统应保持静默等待": 0.3457,
+        "complete: 语义表达清晰闭合，系统应立即切断麦克风响应": 0.0393,
+        "clarification: 语义存在矛盾，需要主动反问打断": 0.6172
+      }
+    },
+    {
+      "id": "dialogue_02",
+      "category": "多轮对话完整性",
+      "state": "[助手]: 已为您勾选两张成人票，请问还需要加购景区观光车吗？\n[用户]: 不需要了，直接提交订单吧。",
+      "question": "结合语境，用户是否已经表达完毕？",
+      "options": [
+        "complete: 语义表达清晰闭合，系统应立即切断麦克风响应",
+        "incomplete: 处于犹豫思考或话语未完状态，系统应保持静默等待",
+        "clarification: 语义存在矛盾，需要主动反问打断"
+      ],
+      "target_label": "complete",
+      "selected_option": "complete: 语义表达清晰闭合，系统应立即切断麦克风响应",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.7461,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 608.96,
+      "probabilities": {
+        "complete: 语义表达清晰闭合，系统应立即切断麦克风响应": 0.7461,
+        "incomplete: 处于犹豫思考或话语未完状态，系统应保持静默等待": 0.1001,
+        "clarification: 语义存在矛盾，需要主动反问打断": 0.1553
+      }
+    },
+    {
+      "id": "dialogue_03",
+      "category": "多轮对话完整性",
+      "state": "[助手]: 请告诉我您的收件人姓名和手机号码。\n[用户]: 我叫李雷。",
+      "question": "针对多槽位提问，用户回答了部分信息，系统应如何判断？",
+      "options": [
+        "incomplete: 多槽位信息未给全，用户可能在看手机准备补充，系统应短暂等待",
+        "complete: 用户已说完，直接按现有信息结算",
+        "cancel_task: 判定为用户拒绝配合，取消订单"
+      ],
+      "target_label": "incomplete",
+      "selected_option": "incomplete: 多槽位信息未给全，用户可能在看手机准备补充，系统应短暂等待",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.5469,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 625.84,
+      "probabilities": {
+        "incomplete: 多槽位信息未给全，用户可能在看手机准备补充，系统应短暂等待": 0.5469,
+        "complete: 用户已说完，直接按现有信息结算": 0.017,
+        "cancel_task: 判定为用户拒绝配合，取消订单": 0.4375
+      }
+    },
+    {
+      "id": "dialogue_04",
+      "category": "多轮对话完整性",
+      "state": "[助手]: 请问这个方案满意吗？\n[用户]: 行，可以。",
+      "question": "用户简短回答，系统应如何决断？",
+      "options": [
+        "complete: 简短肯定答复，语义完整闭合，立即进入下一步",
+        "incomplete: 字数太少，判定为未说完继续等待",
+        "clarification: 语义模糊需重新询问"
+      ],
+      "target_label": "complete",
+      "selected_option": "complete: 简短肯定答复，语义完整闭合，立即进入下一步",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9453,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 569.22,
+      "probabilities": {
+        "complete: 简短肯定答复，语义完整闭合，立即进入下一步": 0.9453,
+        "incomplete: 字数太少，判定为未说完继续等待": 0.0063,
+        "clarification: 语义模糊需重新询问": 0.0466
+      }
+    },
+    {
+      "id": "intent_01",
+      "category": "客服意图分流",
+      "state": "用户咨询：买的这件衣服尺码买小了，穿上太紧，能不能帮我换一件大一号的 L 码？",
+      "question": "该工单应归属于哪种售后分类？",
+      "options": [
+        "exchange_goods: 尺码不合或质量换货申请",
+        "shipping_delay: 物流停滞与丢件催单",
+        "account_security: 密码找回与账号安全",
+        "product_inquiry: 售前产品参数咨询"
+      ],
+      "target_label": "exchange_goods",
+      "selected_option": "exchange_goods: 尺码不合或质量换货申请",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9297,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 436.86,
+      "probabilities": {
+        "exchange_goods: 尺码不合或质量换货申请": 0.9297,
+        "shipping_delay: 物流停滞与丢件催单": 0.016,
+        "account_security: 密码找回与账号安全": 0.0349,
+        "product_inquiry: 售前产品参数咨询": 0.0199
+      }
+    },
+    {
+      "id": "intent_02",
+      "category": "客服意图分流",
+      "state": "用户留言：物流信息显示三天前就已经在派送中了，到现在都没收到，电话也打不通！",
+      "question": "该工单应归属于哪种分类？",
+      "options": [
+        "shipping_delay: 物流停滞与催促派送",
+        "exchange_goods: 尺码换货",
+        "invoice_request: 开具增值税发票",
+        "account_security: 账号安全"
+      ],
+      "target_label": "shipping_delay",
+      "selected_option": "shipping_delay: 物流停滞与催促派送",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.832,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 420.63,
+      "probabilities": {
+        "shipping_delay: 物流停滞与催促派送": 0.832,
+        "exchange_goods: 尺码换货": 0.1494,
+        "invoice_request: 开具增值税发票": 0.0143,
+        "account_security: 账号安全": 0.006
+      }
+    },
+    {
+      "id": "intent_03",
+      "category": "客服意图分流",
+      "state": "用户在智能客服聊天框输入：我要人工！别给我转机器人，马上接人工坐席！",
+      "question": "系统应立即触发哪种路由动作？",
+      "options": [
+        "transfer_human_agent: 立即流转至人工客服排队队列",
+        "push_faq_articles: 强行推送常见问题帮助文档",
+        "close_session: 直接结束会话并提示好评",
+        "restart_bot: 重启对话机器人流程"
+      ],
+      "target_label": "transfer_human_agent",
+      "selected_option": "transfer_human_agent: 立即流转至人工客服排队队列",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9922,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "transfer_human_agent: 立即流转至人工客服排队队列"
+      ],
+      "latency_ms": 553.85,
+      "probabilities": {
+        "transfer_human_agent: 立即流转至人工客服排队队列": 0.9922,
+        "push_faq_articles: 强行推送常见问题帮助文档": 0.0031,
+        "close_session: 直接结束会话并提示好评": 0.0035,
+        "restart_bot: 重启对话机器人流程": 0.0023
+      }
+    },
+    {
+      "id": "intent_04",
+      "category": "客服意图分流",
+      "state": "用户提问：我原本绑定的旧手机号已经注销了，现在接收不到短信验证码，无法登录怎么办？",
+      "question": "该工单的分类应该是？",
+      "options": [
+        "account_security: 账号换绑与实名身份验证找回",
+        "exchange_goods: 换货申请",
+        "shipping_delay: 物流催单",
+        "invoice_request: 发票申请"
+      ],
+      "target_label": "account_security",
+      "selected_option": "account_security: 账号换绑与实名身份验证找回",
+      "selected_index": 0,
+      "target_index": 0,
+      "is_correct": true,
+      "confidence": 0.9805,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "account_security: 账号换绑与实名身份验证找回"
+      ],
+      "latency_ms": 211.5,
+      "probabilities": {
+        "account_security: 账号换绑与实名身份验证找回": 0.9805,
+        "exchange_goods: 换货申请": 0.0075,
+        "shipping_delay: 物流催单": 0.0062,
+        "invoice_request: 发票申请": 0.0058
+      }
+    },
+    {
+      "id": "edge_01",
+      "category": "边界防爆与拒识",
+      "state": "用户仅输入了一个字：‘好。’（上下文没有任何既往对话背景）",
+      "question": "在缺乏上下文的情况下，判断用户意图：",
+      "options": [
+        "confirm_action: 确认执行上文操作",
+        "greeting_hello: 日常问候",
+        "ambiguous_need_clarify: 孤立单字无法判定真实意图，需提示用户补充具体需求",
+        "cancel_action: 取消操作"
+      ],
+      "target_label": "ambiguous_need_clarify",
+      "selected_option": "cancel_action: 取消操作",
+      "selected_index": 3,
+      "target_index": 2,
+      "is_correct": false,
+      "confidence": 0.9531,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "cancel_action: 取消操作"
+      ],
+      "latency_ms": 461.93,
+      "probabilities": {
+        "confirm_action: 确认执行上文操作": 0.0001,
+        "greeting_hello: 日常问候": 0.0,
+        "ambiguous_need_clarify: 孤立单字无法判定真实意图，需提示用户补充具体需求": 0.0466,
+        "cancel_action: 取消操作": 0.9531
+      }
+    },
+    {
+      "id": "edge_02",
+      "category": "边界防爆与拒识",
+      "state": "用户输入：‘帮我把那个弄一下。’（未指定对象、未指定动作、无指代目标）",
+      "question": "系统应该做出什么响应判断？",
+      "options": [
+        "ambiguous_need_clarify: 指代严重缺失，无法自动化决策，必须请求用户澄清",
+        "delete_all_files: 清理全部临时文件",
+        "reboot_system: 重启系统",
+        "submit_order: 提交订单"
+      ],
+      "target_label": "ambiguous_need_clarify",
+      "selected_option": "submit_order: 提交订单",
+      "selected_index": 3,
+      "target_index": 0,
+      "is_correct": false,
+      "confidence": 0.957,
+      "conformal_verdict": "act",
+      "prediction_set": [
+        "submit_order: 提交订单"
+      ],
+      "latency_ms": 595.73,
+      "probabilities": {
+        "ambiguous_need_clarify: 指代严重缺失，无法自动化决策，必须请求用户澄清": 0.0,
+        "delete_all_files: 清理全部临时文件": 0.0031,
+        "reboot_system: 重启系统": 0.0398,
+        "submit_order: 提交订单": 0.957
+      }
+    },
+    {
+      "id": "edge_03",
+      "category": "边界防爆与拒识",
+      "state": "用户输入：‘用 C++ 重构 Unreal Engine 5 的 Lumen 光照缓存着色器。’",
+      "question": "在日常办公助手环境中，评估该任务的可执行性：",
+      "options": [
+        "beyond_capability_escalate: 超出当前轻量助手能力范围，需转交专业图形工程系统",
+        "simple_chat: 属于闲聊日常话题",
+        "calculator: 使用计算器处理",
+        "weather_api: 查询天气"
+      ],
+      "target_label": "beyond_capability_escalate",
+      "selected_option": "weather_api: 查询天气",
+      "selected_index": 3,
+      "target_index": 0,
+      "is_correct": false,
+      "confidence": 0.8945,
+      "conformal_verdict": "reject",
+      "prediction_set": [],
+      "latency_ms": 582.89,
+      "probabilities": {
+        "beyond_capability_escalate: 超出当前轻量助手能力范围，需转交专业图形工程系统": 0.0825,
+        "simple_chat: 属于闲聊日常话题": 0.0077,
+        "calculator: 使用计算器处理": 0.0162,
+        "weather_api: 查询天气": 0.8945
+      }
+    }
+  ]
+}

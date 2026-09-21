@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Training Pipeline for Project Aegis-S1 (Non-Autoregressive Decision Model).
-Trains LoRA on Qwen2.5-0.5B backbone + DynamicOptionMarkerHead with Calibrated Brier Loss.
+Trains LoRA on Qwen2.5-0.5B backbone + DynamicOptionMarkerHead with Calibrated Brier Loss,
+runs true Split-Conformal calibration, and evaluates on held-out test split.
 """
 
 import argparse
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.modeling_s1 import S1DecisionModel
 from src.tokenizer_utils import format_decision_prompt, encode_decision_batch
 from src.losses import CalibratedDecisionLoss
+from src.conformal import ConformalDecisionCalibrator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,20 +54,15 @@ class S1DecisionDataset(Dataset):
 
 
 def collate_fn(batch: List[Dict], tokenizer, device):
-    prompts = []
-    options_list = []
-    targets = []
-    
-    for item in batch:
-        opts = item.get("candidates", item.get("options", []))
-        p = format_decision_prompt(item["state"], item["question"], opts)
-        prompts.append(p)
-        options_list.append(opts)
-        targets.append(item["target_idx"])
+    states = [item["state"] for item in batch]
+    questions = [item["question"] for item in batch]
+    options_list = [item.get("candidates", item.get("options", [])) for item in batch]
+    targets = [item["target_idx"] for item in batch]
         
     encoded = encode_decision_batch(
         tokenizer=tokenizer,
-        batch_prompts=prompts,
+        states=states,
+        questions=questions,
         options_per_sample=options_list,
         targets=targets,
         max_length=512,
@@ -109,9 +106,10 @@ def evaluate(model, val_loader, loss_fn, device):
 def train():
     parser = argparse.ArgumentParser(description="Train S1 Decision Model")
     parser.add_argument("--base_model", type=str, default="E:/asr-endpoint-service/models/base/Qwen2.5-0.5B-Instruct")
-    parser.add_argument("--train_file", type=str, default="E:/s1-decision-model/data/train.jsonl")
-    parser.add_argument("--val_file", type=str, default="E:/s1-decision-model/data/val.jsonl")
-    parser.add_argument("--output_dir", type=str, default="E:/s1-decision-model/output/s1_model_v1")
+    parser.add_argument("--train_file", type=str, default="E:/s1-decision-model/data/train_v3.json")
+    parser.add_argument("--calib_file", type=str, default="E:/s1-decision-model/data/calib_v3.json")
+    parser.add_argument("--test_file", type=str, default="E:/s1-decision-model/data/test_v3.json")
+    parser.add_argument("--output_dir", type=str, default="E:/s1-decision-model/output/s1_model_v3")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr_head", type=float, default=2e-4)
@@ -159,7 +157,8 @@ def train():
 
     # 4. Prepare Datasets and Loaders
     train_dataset = S1DecisionDataset(Path(args.train_file))
-    val_dataset = S1DecisionDataset(Path(args.val_file))
+    calib_dataset = S1DecisionDataset(Path(args.calib_file))
+    test_dataset = S1DecisionDataset(Path(args.test_file))
     
     train_loader = DataLoader(
         train_dataset,
@@ -167,8 +166,14 @@ def train():
         shuffle=True,
         collate_fn=lambda b: collate_fn(b, tokenizer, device),
     )
-    val_loader = DataLoader(
-        val_dataset,
+    calib_loader = DataLoader(
+        calib_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=lambda b: collate_fn(b, tokenizer, device),
+    )
+    test_loader = DataLoader(
+        test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         collate_fn=lambda b: collate_fn(b, tokenizer, device),
@@ -191,8 +196,27 @@ def train():
     loss_fn = CalibratedDecisionLoss(lambda_brier=0.5, lambda_esc=0.3)
 
     # Initial Validation
-    val_loss, val_acc = evaluate(model, val_loader, loss_fn, device)
-    logger.info(f"[*] Pre-training Validation -> Loss: {val_loss:.4f} | Accuracy: {val_acc:.1%}")
+    val_loss, val_acc = evaluate(model, calib_loader, loss_fn, device)
+    logger.info(f"[*] Pre-training Calib Evaluation -> Loss: {val_loss:.4f} | Accuracy: {val_acc:.1%}")
+
+    # Output directory setup
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_path = output_dir / "s1_decision_weights.pt"
+
+    def save_checkpoint():
+        filtered_lora = {k: v for k, v in model.backbone.state_dict().items() if 'lora' in k}
+        torch.save({
+            "backbone_lora": filtered_lora,
+            "decision_head": model.decision_head.state_dict(),
+            "config": {
+                "hidden_dim": hidden_dim,
+                "num_heads": 8,
+                "num_inter_layers": 2,
+                "base_model": args.base_model,
+            }
+        }, save_path)
+        tokenizer.save_pretrained(output_dir)
 
     # 6. Training Loop
     logger.info(f"[*] Starting training for {args.epochs} epochs ({total_steps} steps)...")
@@ -235,31 +259,64 @@ def train():
                     f"Loss: {loss.item():.4f} (CE: {details['ce_loss']:.4f}, Brier: {details['brier_loss']:.4f})"
                 )
                 
-        val_loss, val_acc = evaluate(model, val_loader, loss_fn, device)
-        logger.info(f"[Epoch {epoch} Summary] Train Loss: {epoch_loss/step_count:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.1%}")
+        val_loss, val_acc = evaluate(model, calib_loader, loss_fn, device)
+        logger.info(f"[Epoch {epoch} Summary] Train Loss: {epoch_loss/step_count:.4f} | Calib Loss: {val_loss:.4f} | Calib Acc: {val_acc:.1%}")
+        # Save after every epoch
+        save_checkpoint()
+        logger.info(f"  -> Checkpoint updated: {save_path} ({save_path.stat().st_size / 1024 / 1024:.2f} MB)")
 
     elapsed = time.time() - start_time
     logger.info(f"[PASS] Training completed in {elapsed:.1f}s!")
 
-    # 7. Save Model Weights & Tokenizer
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # 7. True Split-Conformal Calibration on Calib Set (15%)
+    logger.info(f"\n[*] Running True Split-Conformal Calibration on Calib Split ({len(calib_dataset)} samples)...")
+    model.eval()
+    all_calib_probs = []
+    all_calib_targets = []
     
-    # Save standalone weights
-    save_path = output_dir / "s1_decision_weights.pt"
-    torch.save({
-        "backbone_lora": model.backbone.state_dict(),
-        "decision_head": model.decision_head.state_dict(),
-        "config": {
-            "hidden_dim": hidden_dim,
-            "num_heads": 8,
-            "num_inter_layers": 2,
-            "base_model": args.base_model,
-        }
-    }, save_path)
+    with torch.no_grad():
+        for b in calib_loader:
+            out = model(b["input_ids"], b["attention_mask"], b["marker_indices"], b["marker_mask"])
+            all_calib_probs.append(out["probs"].cpu())
+            all_calib_targets.append(b["targets"].cpu())
+            
+    calib_probs_t = torch.cat(all_calib_probs, dim=0)
+    calib_targets_t = torch.cat(all_calib_targets, dim=0)
     
-    tokenizer.save_pretrained(output_dir)
-    logger.info(f"[PASS] Model checkpoint and tokenizer saved to: {output_dir}")
+    calibrator = ConformalDecisionCalibrator(alpha=0.05)
+    q_hat = calibrator.fit(calib_probs_t, calib_targets_t)
+    calib_file_path = output_dir / "conformal_calibration.json"
+    calibrator.save(calib_file_path)
+    logger.info(f"[PASS] Calibration fitted: q_hat={q_hat:.4f}, saved to {calib_file_path}")
+
+    # 8. Unbiased Evaluation on Held-Out Test Split (15%)
+    logger.info(f"\n[*] Evaluating on Strictly Disjoint Test Split ({len(test_dataset)} samples)...")
+    all_test_probs = []
+    all_test_targets = []
+    
+    with torch.no_grad():
+        for b in test_loader:
+            out = model(b["input_ids"], b["attention_mask"], b["marker_indices"], b["marker_mask"])
+            all_test_probs.append(out["probs"].cpu())
+            all_test_targets.append(b["targets"].cpu())
+            
+    test_probs_t = torch.cat(all_test_probs, dim=0)
+    test_targets_t = torch.cat(all_test_targets, dim=0)
+    
+    test_metrics = calibrator.evaluate_coverage(test_probs_t, test_targets_t, alpha=0.05)
+    test_preds = torch.argmax(test_probs_t, dim=-1)
+    test_acc = (test_preds == test_targets_t).float().mean().item()
+    
+    logger.info("=" * 60)
+    logger.info("    UNBIASED HELD-OUT TEST EVALUATION (ZERO TEMPLATE OVERLAP)")
+    logger.info("=" * 60)
+    logger.info(f"  Top-1 Accuracy:                 {test_acc:.2%}")
+    logger.info(f"  Empirical Conformal Coverage:   {test_metrics['empirical_coverage']:.2%} (Target: >= 95.0%)")
+    logger.info(f"  Act Coverage Rate (Auto-pass):  {test_metrics['act_coverage_rate']:.2%}")
+    logger.info(f"  Selective Risk on Act:          {test_metrics['selective_risk_on_act']:.2%}")
+    logger.info(f"  Abstention / Rejection Rate:    {test_metrics['abstention_rate']:.2%}")
+    logger.info(f"  Average Prediction Set Size:    {test_metrics['average_set_size']:.2f}")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

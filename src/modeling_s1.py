@@ -4,7 +4,7 @@ S1-Decision: Non-autoregressive System 1 Decision Model
 Featuring Dynamic Option-Marker Scorer, Inter-Option Attention, and Escalate Gate.
 """
 
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -172,12 +172,14 @@ class S1DecisionModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        marker_indices: torch.Tensor,
-        marker_mask: torch.Tensor,
+        marker_indices: Optional[torch.Tensor] = None,
+        marker_mask: Optional[torch.Tensor] = None,
+        query_markers: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
         bidirectional: bool = True,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Dict[str, Any]:
         """
         Single non-autoregressive forward pass returning decision predictions.
+        Supports both single-query and parallel multi-query evaluation.
         If bidirectional=True, transforms 2D causal mask into 4D full bidirectional
         mask, turning Decoder LLM into a modern Bidirectional Decision Encoder.
         """
@@ -197,6 +199,37 @@ class S1DecisionModel(nn.Module):
         outputs = self.backbone(input_ids=input_ids, attention_mask=attn_mask_to_pass)
         sequence_hidden = outputs.last_hidden_state  # [Batch, SeqLen, HiddenDim]
         
+        # Parallel Multi-Query Evaluation
+        if query_markers is not None:
+            cls_hidden = sequence_hidden[:, 0, :]
+            head_dtype = self.decision_head.scorer[1].weight.dtype
+            escalate = self.decision_head.escalate_gate(cls_hidden.to(dtype=head_dtype)).squeeze(-1)
+            
+            query_results = {}
+            for q_name, q_data in query_markers.items():
+                q_idx = q_data["indices"]
+                q_mask = q_data["mask"]
+                logits, probs, _ = self.decision_head(
+                    sequence_hidden_states=sequence_hidden,
+                    marker_indices=q_idx,
+                    marker_mask=q_mask,
+                )
+                confidence, best_idx = torch.max(probs, dim=-1)
+                query_results[q_name] = {
+                    "logits": logits,
+                    "probs": probs,
+                    "confidence": confidence,
+                    "best_choice_idx": best_idx,
+                }
+            return {
+                "escalate_risk": escalate,
+                "queries": query_results,
+            }
+        
+        # Single-Query Mode
+        if marker_indices is None or marker_mask is None:
+            raise ValueError("Either query_markers or (marker_indices, marker_mask) must be provided.")
+            
         logits, probs, escalate = self.decision_head(
             sequence_hidden_states=sequence_hidden,
             marker_indices=marker_indices,
@@ -212,3 +245,4 @@ class S1DecisionModel(nn.Module):
             "best_choice_idx": best_idx,
             "escalate_risk": escalate,
         }
+

@@ -136,6 +136,7 @@ def encode_decision_batch(
     max_k = max(len(opts) for opts in options_per_sample)
     marker_indices = torch.zeros((batch_size, max_k), dtype=torch.long, device=device)
     marker_mask = torch.zeros((batch_size, max_k), dtype=torch.bool, device=device)
+    option_spans = torch.zeros((batch_size, max_k, 2), dtype=torch.long, device=device)
     
     for b in range(batch_size):
         num_options = len(options_per_sample[b])
@@ -148,8 +149,20 @@ def encode_decision_batch(
                 f"or corrupted. Max length is {max_length}."
             )
             
+        non_pad = (attention_mask[b] == 1).nonzero(as_tuple=True)[0]
+        seq_end = non_pad[-1].item() + 1 if len(non_pad) > 0 else seq_len
+
         for k in range(num_options):
-            marker_indices[b, k] = token_positions[k]
+            s_pos = token_positions[k].item()
+            if k < num_options - 1:
+                e_pos = token_positions[k + 1].item()
+            else:
+                e_pos = seq_end
+
+            opt_start = s_pos + 1 if e_pos > s_pos + 1 else s_pos
+            option_spans[b, k, 0] = opt_start
+            option_spans[b, k, 1] = e_pos
+            marker_indices[b, k] = s_pos
             marker_mask[b, k] = True
 
     # Construct 4D Bidirectional Attention Mask
@@ -167,6 +180,7 @@ def encode_decision_batch(
         "bidirectional_mask_4d": mask_4d,
         "marker_indices": marker_indices,
         "marker_mask": marker_mask,
+        "option_spans": option_spans,
     }
     
     if targets is not None:
@@ -265,9 +279,11 @@ def encode_multi_query_batch(
         max_k_q = max(len(queries_per_sample[b][q_name][1]) for b in range(batch_size))
         marker_indices_q = torch.zeros((batch_size, max_k_q), dtype=torch.long, device=device)
         marker_mask_q = torch.zeros((batch_size, max_k_q), dtype=torch.bool, device=device)
+        option_spans_q = torch.zeros((batch_size, max_k_q, 2), dtype=torch.long, device=device)
         query_markers[q_name] = {
             "indices": marker_indices_q,
             "mask": marker_mask_q,
+            "spans": option_spans_q,
         }
 
     for b in range(batch_size):
@@ -279,13 +295,27 @@ def encode_multi_query_batch(
                 f"but found {len(token_positions)}. Tokens truncated or corrupted."
             )
         
+        non_pad = (attention_mask[b] == 1).nonzero(as_tuple=True)[0]
+        seq_end = non_pad[-1].item() + 1 if len(non_pad) > 0 else seq_len
+
         offset = 0
         for q_name, (q_text, opts) in queries_per_sample[b].items():
             num_opts = len(opts)
             for k in range(num_opts):
-                query_markers[q_name]["indices"][b, k] = token_positions[offset + k]
+                global_idx = offset + k
+                s_pos = token_positions[global_idx].item()
+                if global_idx < total_expected_markers - 1:
+                    e_pos = token_positions[global_idx + 1].item()
+                else:
+                    e_pos = seq_end
+
+                opt_start = s_pos + 1 if e_pos > s_pos + 1 else s_pos
+                query_markers[q_name]["indices"][b, k] = s_pos
                 query_markers[q_name]["mask"][b, k] = True
+                query_markers[q_name]["spans"][b, k, 0] = opt_start
+                query_markers[q_name]["spans"][b, k, 1] = e_pos
             offset += num_opts
+
 
     # Construct 4D Bidirectional Attention Mask
     mask_dtype = torch.bfloat16 if device == "cuda" else torch.float32

@@ -74,12 +74,14 @@ class ExpectedCalibrationError(nn.Module):
 class CalibratedDecisionLoss(nn.Module):
     """
     Compound loss function:
-    Total Loss = CrossEntropy + lambda_brier * BrierLoss + lambda_esc * EscalateLoss
+    Total Loss = CrossEntropy + lambda_brier * BrierLoss + lambda_margin * MarginLoss + lambda_esc * EscalateLoss
     """
-    def __init__(self, lambda_brier: float = 0.5, lambda_esc: float = 0.3):
+    def __init__(self, lambda_brier: float = 0.5, lambda_esc: float = 0.3, lambda_margin: float = 0.3, margin: float = 1.0):
         super().__init__()
         self.lambda_brier = lambda_brier
         self.lambda_esc = lambda_esc
+        self.lambda_margin = lambda_margin
+        self.margin = margin
         self.brier = MultiClassBrierLoss()
         self.bce = nn.BCELoss()
 
@@ -105,8 +107,16 @@ class CalibratedDecisionLoss(nn.Module):
         # 2. Proper Scoring Rule: Brier Loss
         brier_loss = self.brier(probs, targets, mask)
         
-        # 3. Escalate Risk Supervision:
-        # Ideal escalate label is 1 if the model would make an error or top prob is below safety threshold
+        # 3. Hard-Negative Margin Loss: Enforce geometric separation between target and closest rival
+        target_logits = logits.gather(dim=1, index=targets.unsqueeze(1)).squeeze(1)
+        neg_logits = logits.clone()
+        neg_logits.scatter_(1, targets.unsqueeze(1), -1e4)
+        if mask is not None:
+            neg_logits = neg_logits.masked_fill(~mask, -1e4)
+        hardest_neg_logits = neg_logits.max(dim=1).values
+        margin_loss = F.relu(self.margin - (target_logits - hardest_neg_logits)).mean()
+
+        # 4. Escalate Risk Supervision:
         with torch.no_grad():
             preds = torch.argmax(probs, dim=-1)
             is_error = (preds != targets).float()
@@ -115,11 +125,13 @@ class CalibratedDecisionLoss(nn.Module):
             
         esc_loss = self.bce(escalate_risk, escalate_target)
         
-        total_loss = ce_loss + self.lambda_brier * brier_loss + self.lambda_esc * esc_loss
+        total_loss = ce_loss + self.lambda_brier * brier_loss + self.lambda_margin * margin_loss + self.lambda_esc * esc_loss
         
         return total_loss, {
             "loss": total_loss.item(),
             "ce_loss": ce_loss.item(),
             "brier_loss": brier_loss.item(),
+            "margin_loss": margin_loss.item(),
             "esc_loss": esc_loss.item(),
         }
+

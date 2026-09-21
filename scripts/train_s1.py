@@ -84,6 +84,7 @@ def evaluate(model, val_loader, loss_fn, device):
                 attention_mask=batch["attention_mask"],
                 marker_indices=batch["marker_indices"],
                 marker_mask=batch["marker_mask"],
+                option_spans=batch.get("option_spans"),
             )
             loss, _ = loss_fn(
                 logits=outputs["logits"],
@@ -109,7 +110,7 @@ def train():
     parser.add_argument("--train_file", type=str, default="E:/s1-decision-model/data/train_v3.json")
     parser.add_argument("--calib_file", type=str, default="E:/s1-decision-model/data/calib_v3.json")
     parser.add_argument("--test_file", type=str, default="E:/s1-decision-model/data/test_v3.json")
-    parser.add_argument("--output_dir", type=str, default="E:/s1-decision-model/output/s1_model_v3")
+    parser.add_argument("--output_dir", type=str, default="E:/s1-decision-model/output/s1_model_v4")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr_head", type=float, default=2e-4)
@@ -135,14 +136,15 @@ def train():
     )
     
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        r=32,
+        lora_alpha=64,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         lora_dropout=0.05,
         bias="none",
     )
     backbone = get_peft_model(backbone, lora_config)
     backbone.print_trainable_parameters()
+
 
     # 3. Assemble Complete S1 Model
     model = S1DecisionModel(
@@ -235,6 +237,7 @@ def train():
                 attention_mask=batch["attention_mask"],
                 marker_indices=batch["marker_indices"],
                 marker_mask=batch["marker_mask"],
+                option_spans=batch.get("option_spans"),
             )
             
             loss, details = loss_fn(
@@ -256,7 +259,7 @@ def train():
             if (step + 1) % 25 == 0:
                 logger.info(
                     f"Epoch {epoch}/{args.epochs} [Step {step+1}/{len(train_loader)}] "
-                    f"Loss: {loss.item():.4f} (CE: {details['ce_loss']:.4f}, Brier: {details['brier_loss']:.4f})"
+                    f"Loss: {loss.item():.4f} (CE: {details['ce_loss']:.4f}, Brier: {details['brier_loss']:.4f}, Margin: {details.get('margin_loss', 0.0):.4f})"
                 )
                 
         val_loss, val_acc = evaluate(model, calib_loader, loss_fn, device)
@@ -276,7 +279,13 @@ def train():
     
     with torch.no_grad():
         for b in calib_loader:
-            out = model(b["input_ids"], b["attention_mask"], b["marker_indices"], b["marker_mask"])
+            out = model(
+                b["input_ids"],
+                b["attention_mask"],
+                marker_indices=b["marker_indices"],
+                marker_mask=b["marker_mask"],
+                option_spans=b.get("option_spans"),
+            )
             all_calib_probs.append(out["probs"].cpu())
             all_calib_targets.append(b["targets"].cpu())
             
@@ -296,9 +305,16 @@ def train():
     
     with torch.no_grad():
         for b in test_loader:
-            out = model(b["input_ids"], b["attention_mask"], b["marker_indices"], b["marker_mask"])
+            out = model(
+                b["input_ids"],
+                b["attention_mask"],
+                marker_indices=b["marker_indices"],
+                marker_mask=b["marker_mask"],
+                option_spans=b.get("option_spans"),
+            )
             all_test_probs.append(out["probs"].cpu())
             all_test_targets.append(b["targets"].cpu())
+
             
     test_probs_t = torch.cat(all_test_probs, dim=0)
     test_targets_t = torch.cat(all_test_targets, dim=0)

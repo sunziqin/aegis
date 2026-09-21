@@ -82,31 +82,51 @@ class DynamicOptionMarkerHead(nn.Module):
     def forward(
         self,
         sequence_hidden_states: torch.Tensor,
-        marker_indices: torch.Tensor,
-        marker_mask: torch.Tensor,
+        marker_indices: Optional[torch.Tensor] = None,
+        marker_mask: Optional[torch.Tensor] = None,
+        option_spans: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
             sequence_hidden_states: [Batch, SeqLen, HiddenDim]
-            marker_indices: [Batch, MaxK] (token indices of candidate markers)
+            marker_indices: [Batch, MaxK] (token indices of candidate markers, fallback)
             marker_mask: [Batch, MaxK] (bool, True for real options, False for padding)
+            option_spans: [Batch, MaxK, 2] (start and end token indices for each option span)
         Returns:
             logits: [Batch, MaxK]
             probs: [Batch, MaxK]
             escalate_score: [Batch]
         """
-        batch_size, max_k = marker_indices.shape
+        if marker_mask is None:
+            raise ValueError("marker_mask must be provided.")
+            
+        batch_size, max_k = marker_mask.shape
         head_dtype = self.scorer[1].weight.dtype
         sequence_hidden_states = sequence_hidden_states.to(dtype=head_dtype)
         hidden_dim = sequence_hidden_states.shape[-1]
+        seq_len = sequence_hidden_states.shape[1]
         
-        # 1. Gather marker representations: [Batch, MaxK, HiddenDim]
-        expanded_indices = marker_indices.unsqueeze(-1).expand(-1, -1, hidden_dim)
-        safe_indices = torch.clamp(expanded_indices, min=0)
-        option_embeds = torch.gather(sequence_hidden_states, dim=1, index=safe_indices)
-        
-        # Zero out padding representations
-        option_embeds = option_embeds * marker_mask.unsqueeze(-1).to(dtype=sequence_hidden_states.dtype)
+        # 1. Option Representation: Vectorized Span Mean-Pooling or Marker Gather
+        if option_spans is not None:
+            token_range = torch.arange(seq_len, device=sequence_hidden_states.device).view(1, 1, seq_len)
+            start_idx = option_spans[:, :, 0].unsqueeze(-1)  # [Batch, MaxK, 1]
+            end_idx = option_spans[:, :, 1].unsqueeze(-1)    # [Batch, MaxK, 1]
+            
+            in_span = (token_range >= start_idx) & (token_range < end_idx)
+            in_span = in_span & marker_mask.unsqueeze(-1)
+            
+            span_float = in_span.to(dtype=sequence_hidden_states.dtype)
+            span_lengths = span_float.sum(dim=-1, keepdim=True).clamp(min=1.0)
+            
+            # [Batch, MaxK, SeqLen] x [Batch, SeqLen, HiddenDim] -> [Batch, MaxK, HiddenDim]
+            option_embeds = torch.bmm(span_float, sequence_hidden_states) / span_lengths
+        elif marker_indices is not None:
+            expanded_indices = marker_indices.unsqueeze(-1).expand(-1, -1, hidden_dim)
+            safe_indices = torch.clamp(expanded_indices, min=0)
+            option_embeds = torch.gather(sequence_hidden_states, dim=1, index=safe_indices)
+            option_embeds = option_embeds * marker_mask.unsqueeze(-1).to(dtype=sequence_hidden_states.dtype)
+        else:
+            raise ValueError("Either option_spans or marker_indices must be provided.")
         
         # 2. Inter-Option Cross-Attention
         contextual_options = self.inter_option_attn(option_embeds, marker_mask)
@@ -121,9 +141,10 @@ class DynamicOptionMarkerHead(nn.Module):
         
         # 4. Global Escalate Risk Gate
         cls_hidden = sequence_hidden_states[:, 0, :]
-        escalate_score = self.escalate_gate(cls_hidden).squeeze(-1)  # [Batch]
+        escalate_score = self.escalate_gate(cls_hidden.to(dtype=head_dtype)).squeeze(-1)
         
         return masked_logits, probs, escalate_score
+
 
 
 class S1DecisionModel(nn.Module):
@@ -174,12 +195,14 @@ class S1DecisionModel(nn.Module):
         attention_mask: torch.Tensor,
         marker_indices: Optional[torch.Tensor] = None,
         marker_mask: Optional[torch.Tensor] = None,
+        option_spans: Optional[torch.Tensor] = None,
         query_markers: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
         bidirectional: bool = True,
     ) -> Dict[str, Any]:
         """
         Single non-autoregressive forward pass returning decision predictions.
         Supports both single-query and parallel multi-query evaluation.
+        Supports both single-marker indexing and option-span mean-pooling.
         If bidirectional=True, transforms 2D causal mask into 4D full bidirectional
         mask, turning Decoder LLM into a modern Bidirectional Decision Encoder.
         """
@@ -209,10 +232,12 @@ class S1DecisionModel(nn.Module):
             for q_name, q_data in query_markers.items():
                 q_idx = q_data["indices"]
                 q_mask = q_data["mask"]
+                q_spans = q_data.get("spans")
                 logits, probs, _ = self.decision_head(
                     sequence_hidden_states=sequence_hidden,
                     marker_indices=q_idx,
                     marker_mask=q_mask,
+                    option_spans=q_spans,
                 )
                 confidence, best_idx = torch.max(probs, dim=-1)
                 query_results[q_name] = {
@@ -227,13 +252,14 @@ class S1DecisionModel(nn.Module):
             }
         
         # Single-Query Mode
-        if marker_indices is None or marker_mask is None:
-            raise ValueError("Either query_markers or (marker_indices, marker_mask) must be provided.")
+        if marker_mask is None or (marker_indices is None and option_spans is None):
+            raise ValueError("Either query_markers or (marker_mask and marker_indices/option_spans) must be provided.")
             
         logits, probs, escalate = self.decision_head(
             sequence_hidden_states=sequence_hidden,
             marker_indices=marker_indices,
             marker_mask=marker_mask,
+            option_spans=option_spans,
         )
         
         confidence, best_idx = torch.max(probs, dim=-1)
@@ -245,4 +271,5 @@ class S1DecisionModel(nn.Module):
             "best_choice_idx": best_idx,
             "escalate_risk": escalate,
         }
+
 

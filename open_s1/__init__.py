@@ -65,14 +65,17 @@ class AegisRouter:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             
         if model_dir is None:
+            v4_path = Path("E:/s1-decision-model/output/s1_model_v4")
             v3_path = Path("E:/s1-decision-model/output/s1_model_v3")
             v2_path = Path("E:/s1-decision-model/output/s1_model_v2")
-            if (v3_path / "s1_decision_weights.pt").exists():
+            if (v4_path / "s1_decision_weights.pt").exists():
+                model_dir = v4_path
+            elif (v3_path / "s1_decision_weights.pt").exists():
                 model_dir = v3_path
             elif (v2_path / "s1_decision_weights.pt").exists():
                 model_dir = v2_path
             else:
-                model_dir = v3_path
+                model_dir = v4_path
         else:
             model_dir = Path(model_dir)
 
@@ -97,10 +100,24 @@ class AegisRouter:
             config=config,
             dtype=torch.bfloat16 if device == "cuda" else torch.float32,
         )
+        checkpoint = torch.load(weight_file, map_location=device)
+        lora_state = checkpoint["backbone_lora"]
+        
+        # Dynamically detect LoRA rank and target modules from checkpoint
+        sample_lora_a = next((v for k, v in lora_state.items() if "lora_A" in k), None)
+        detected_r = sample_lora_a.shape[0] if sample_lora_a is not None else 32
+        
+        detected_targets = set()
+        for k in lora_state.keys():
+            for m in ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]:
+                if m in k:
+                    detected_targets.add(m)
+        target_modules = list(detected_targets) if detected_targets else ["q_proj", "k_proj", "v_proj", "o_proj"]
+        
         lora_config = LoraConfig(
-            r=16,
-            lora_alpha=32,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            r=detected_r,
+            lora_alpha=detected_r * 2,
+            target_modules=target_modules,
             lora_dropout=0.05,
             bias="none",
         )
@@ -113,9 +130,9 @@ class AegisRouter:
             num_inter_layers=2,
         ).to(device)
         
-        checkpoint = torch.load(weight_file, map_location=device)
         backbone.load_state_dict(checkpoint["backbone_lora"], strict=False)
         model.decision_head.load_state_dict(checkpoint["decision_head"])
+
             
         if device == "cuda":
             model.decision_head.to(dtype=torch.bfloat16)
@@ -159,6 +176,7 @@ class AegisRouter:
                 attention_mask=batch["attention_mask"],
                 marker_indices=batch["marker_indices"],
                 marker_mask=batch["marker_mask"],
+                option_spans=batch.get("option_spans"),
                 bidirectional=True,
             )
             

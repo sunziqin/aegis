@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-S1-OOD-Bench: 50 Strictly Unseen, Out-of-Distribution (OOD) Decision Tasks.
-Zero-contamination: Absolutely none of these domains or tools were present in the training data.
+S1-OOD-Bench: 50 held-out OOD-style decision tasks.
+The file is a probe set; its domain and template novelty must be audited against
+the exact training data before making an "unseen" claim.
 Covers:
 1. Bioinformatics & Genomics APIs
 2. High-Frequency Quantitative Finance & Derivatives

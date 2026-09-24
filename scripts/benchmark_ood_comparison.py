@@ -3,7 +3,7 @@
 Hardcore OOD (Out-Of-Distribution) Benchmark.
 Evaluates both Unmodified Qwen2.5-0.5B and Modified Aegis-S1 on S1-OOD-Bench.
 Measures:
-1. Zero-shot transfer accuracy on strictly unseen domains
+1. Transfer accuracy on a held-out OOD-style probe set
 2. Latency profile
 3. Conformal epistemic safety: Does S1 safely escalate/reject rather than hallucinating?
 """
@@ -32,7 +32,7 @@ VAL_PATH = Path("E:/s1-decision-model/data/val.jsonl")
 
 def evaluate_unmodified_on_ood(samples: List[Dict], device: str) -> Dict:
     print("\n" + "=" * 70)
-    print("  [1/2] Evaluating UNMODIFIED Qwen2.5-0.5B on OOD (Unseen Domains)  ")
+    print("  [1/2] Evaluating UNMODIFIED Qwen2.5-0.5B on a held-out OOD-style set  ")
     print("=" * 70)
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_PATH)
     model = AutoModelForCausalLM.from_pretrained(
@@ -99,7 +99,7 @@ def evaluate_unmodified_on_ood(samples: List[Dict], device: str) -> Dict:
 
 def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
     print("\n" + "=" * 70)
-    print("  [2/2] Evaluating MODIFIED Aegis-S1 on OOD (Unseen Domains)       ")
+    print("  [2/2] Evaluating MODIFIED Aegis-S1 on a held-out OOD-style set       ")
     print("=" * 70)
     
     checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
@@ -110,7 +110,7 @@ def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
     backbone = AutoModel.from_pretrained(
         BASE_MODEL_PATH,
         config=config,
-        dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+        torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
     )
     lora_config = LoraConfig(
         r=16,
@@ -142,7 +142,14 @@ def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
     val_prompts = [format_decision_prompt(s["state"], s["question"], s["options"]) for s in val_samples]
     val_opts = [s["options"] for s in val_samples]
     val_targets = [s["target_idx"] for s in val_samples]
-    val_batch = encode_decision_batch(tokenizer, val_prompts, val_opts, val_targets, max_length=512, device=device)
+    val_batch = encode_decision_batch(
+        tokenizer=tokenizer,
+        batch_prompts=val_prompts,
+        options_per_sample=val_opts,
+        targets=val_targets,
+        max_length=512,
+        device=device,
+    )
     with torch.no_grad():
         val_out = model(val_batch["input_ids"], val_batch["attention_mask"], val_batch["marker_indices"], val_batch["marker_mask"])
     val_probs = val_out["probs"].float().cpu().numpy()
@@ -154,12 +161,20 @@ def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
     correct = 0
     latencies = []
     all_probs = []
+    all_valid_masks = []
     
     prompts = [format_decision_prompt(s["state"], s["question"], s["options"]) for s in samples]
     options_list = [s["options"] for s in samples]
     targets = [s["target_idx"] for s in samples]
     
-    batch = encode_decision_batch(tokenizer, prompts, options_list, targets, max_length=512, device=device)
+    batch = encode_decision_batch(
+        tokenizer=tokenizer,
+        batch_prompts=prompts,
+        options_per_sample=options_list,
+        targets=targets,
+        max_length=512,
+        device=device,
+    )
     
     for i in range(total):
         in_ids = batch["input_ids"][i:i+1]
@@ -180,8 +195,9 @@ def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
         if pred_idx == target:
             correct += 1
         all_probs.append(out["probs"].float().cpu().numpy()[0])
+        all_valid_masks.append(np.arange(out["probs"].shape[1]) < len(options_list[i]))
         
-    conformal_verdicts = calibrator.predict(all_probs)
+    conformal_verdicts = calibrator.predict(all_probs, valid_mask=np.asarray(all_valid_masks))
     
     act_count = sum(1 for r in conformal_verdicts if r["verdict"] == "act")
     escalate_count = sum(1 for r in conformal_verdicts if r["verdict"] == "escalate")
@@ -190,7 +206,8 @@ def evaluate_s1_on_ood(samples: List[Dict], device: str) -> Dict:
     # Calculate False-Act (model was confident enough to ACT, but made a mistake)
     false_acts = 0
     for i in range(total):
-        if conformal_verdicts[i]["verdict"] == "act" and np.argmax(all_probs[i]) != targets[i]:
+        masked_probs = np.where(all_valid_masks[i], all_probs[i], -np.inf)
+        if conformal_verdicts[i]["verdict"] == "act" and np.argmax(masked_probs) != targets[i]:
             false_acts += 1
             
     acc = correct / total
@@ -220,19 +237,19 @@ def main():
             if line.strip():
                 samples.append(json.loads(line))
                 
-    print(f"Loaded {len(samples)} strictly unseen OOD tasks from {OOD_BENCH_PATH.name}.")
+    print(f"Loaded {len(samples)} held-out OOD-style tasks from {OOD_BENCH_PATH.name}.")
     
     res_unmod = evaluate_unmodified_on_ood(samples, device)
     res_s1 = evaluate_s1_on_ood(samples, device)
     
     print("\n" + "=" * 76)
-    print("      HARDCORE ZERO-SHOT OOD EVALUATION (COMPLETELY UNSEEN DOMAINS)      ")
+    print("      HELD-OUT OOD-STYLE EVALUATION (NOVELTY REQUIRES SEPARATE AUDIT)      ")
     print("=" * 76)
     print(f"  {'Evaluation Metric':<32} | {'Unmodified 0.5B':<18} | {'Modified Aegis-S1':<18}")
     print(f"  {'-'*32}-|-{'-'*18}-|-{'-'*18}")
     print(f"  {'OOD Transfer Accuracy':<32} | {res_unmod['acc']:.1%} ({res_unmod['correct_count']}/{res_unmod['total']}){'':<7} | {res_s1['acc']:.1%} ({res_s1['correct_count']}/{res_s1['total']}){'':<7}")
     print(f"  {'Single-Decision Latency':<32} | {res_unmod['latency']:.1f} ms{'':<10} | {res_s1['latency']:.1f} ms{'':<10}")
-    print(f"  {'Blind Guessing on Unseen?':<32} | {'Yes (Forces choice)':<18} | {'No (Conformal safety)':<18}")
+    print(f"  {'Blind Guessing on Probe?':<32} | {'Yes (Forces choice)':<18} | {'No (Conformal safety)':<18}")
     print(f"  {'Safe Refusal / Escalate Rate':<32} | {'0.0%':<18} | {(res_s1['escalate_count']+res_s1['reject_count'])/res_s1['total']:.1%}{'':<12}")
     print(f"  {'Silent Error / False-Act Rate':<32} | {1.0 - res_unmod['acc']:.1%}{'':<12} | {res_s1['false_acts']/max(1, res_s1['act_count']):.1%}{'':<12}")
     print("=" * 76)

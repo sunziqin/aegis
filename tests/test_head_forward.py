@@ -67,10 +67,9 @@ def test_head_with_dummy_tensors():
                 assert probs[b, k].item() == 0.0, f"Sample {b} padded option {k} is non-zero!"
                 
     print("[PASS] DynamicOptionMarkerHead correctly handles variable candidate sizes and masking!")
-    return head
 
 
-def test_head_latency_benchmark(head):
+def test_head_latency_benchmark():
     print("\n" + "=" * 60)
     print("[2] Benchmarking Head Forward Latency on GPU...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,6 +77,9 @@ def test_head_latency_benchmark(head):
         print("[!] CUDA not available, skipping GPU micro-benchmark.")
         return
         
+    hidden_dim = 1024
+    head = DynamicOptionMarkerHead(hidden_dim=hidden_dim, num_heads=8, num_inter_layers=2).to(device)
+    head.eval()
     batch_size = 1  # Standard real-time API request
     seq_len = 256
     hidden_dim = 1024
@@ -155,8 +157,8 @@ def test_with_real_backbone():
 
 
 if __name__ == "__main__":
-    head = test_head_with_dummy_tensors()
-    test_head_latency_benchmark(head)
+    test_head_with_dummy_tensors()
+    test_head_latency_benchmark()
     test_with_real_backbone()
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED! Phase 1 Model Core is fully operational.")

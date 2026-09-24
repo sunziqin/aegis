@@ -161,6 +161,20 @@ class S1DecisionModel(nn.Module):
             num_inter_layers=num_inter_layers,
         )
 
+        self.fast_bidirectional = False
+
+    def enable_fast_bidirectional(self, enabled: bool = True):
+        """
+        Enables Native C++ SDPA Flash Attention for bidirectional encoding.
+        Directly toggles `is_causal = False` on the underlying backbone attention layers,
+        bypassing expensive 4D float mask allocation during inference/evaluation.
+        """
+        self.fast_bidirectional = enabled
+        for m in self.backbone.modules():
+            if hasattr(m, "is_causal"):
+                m.is_causal = not enabled
+        return self
+
     @classmethod
     def from_pretrained(
         cls,
@@ -204,18 +218,20 @@ class S1DecisionModel(nn.Module):
         Supports both single-query and parallel multi-query evaluation.
         Supports both single-marker indexing and option-span mean-pooling.
         If bidirectional=True, transforms 2D causal mask into 4D full bidirectional
-        mask, turning Decoder LLM into a modern Bidirectional Decision Encoder.
+        mask (or triggers native Flash-SDPA when fast_bidirectional is enabled).
         """
-        if bidirectional and attention_mask.dim() == 2:
-            batch_size, seq_len = attention_mask.shape
-            mask_dtype = torch.bfloat16 if input_ids.is_cuda else torch.float32
-            mask_4d = torch.zeros((batch_size, 1, seq_len, seq_len), dtype=mask_dtype, device=input_ids.device)
-            for b in range(batch_size):
-                pad_idx = (attention_mask[b] == 0).nonzero(as_tuple=True)[0]
-                if len(pad_idx) > 0:
-                    mask_4d[b, 0, :, pad_idx] = -1e4
-                    mask_4d[b, 0, pad_idx, :] = -1e4
-            attn_mask_to_pass = mask_4d
+        if bidirectional:
+            if self.fast_bidirectional and attention_mask is not None and attention_mask.dim() == 2 and (attention_mask == 1).all():
+                # Direct FlashAttention-2 / SDPA kernel passthrough for unpadded inputs
+                attn_mask_to_pass = None
+            elif attention_mask.dim() == 2:
+                batch_size, seq_len = attention_mask.shape
+                mask_dtype = torch.bfloat16 if input_ids.is_cuda else torch.float32
+                # Fully vectorized 4D mask generation without Python loop overhead
+                pad_mask = (1.0 - attention_mask.to(dtype=mask_dtype)) * -1e4
+                attn_mask_to_pass = pad_mask[:, None, None, :] + pad_mask[:, None, :, None]
+            else:
+                attn_mask_to_pass = attention_mask
         else:
             attn_mask_to_pass = attention_mask
 
@@ -271,5 +287,60 @@ class S1DecisionModel(nn.Module):
             "best_choice_idx": best_idx,
             "escalate_risk": escalate,
         }
+
+    def fast_forward(
+        self,
+        input_ids: torch.Tensor,
+        marker_indices: Optional[torch.Tensor] = None,
+        marker_mask: Optional[torch.Tensor] = None,
+        option_spans: Optional[torch.Tensor] = None,
+        query_markers: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ultra-low latency inference path with zero 4D-mask memory overhead.
+        Directly executes native C++ SDPA Flash Attention with is_causal=False.
+        """
+        if not self.fast_bidirectional:
+            self.enable_fast_bidirectional(True)
+
+        outputs = self.backbone(input_ids=input_ids, attention_mask=None)
+        sequence_hidden = outputs.last_hidden_state
+
+        if query_markers is not None:
+            cls_hidden = sequence_hidden[:, 0, :]
+            head_dtype = self.decision_head.scorer[1].weight.dtype
+            escalate = self.decision_head.escalate_gate(cls_hidden.to(dtype=head_dtype)).squeeze(-1)
+            query_results = {}
+            for q_name, q_data in query_markers.items():
+                logits, probs, _ = self.decision_head(
+                    sequence_hidden_states=sequence_hidden,
+                    marker_indices=q_data["indices"],
+                    marker_mask=q_data["mask"],
+                    option_spans=q_data.get("spans"),
+                )
+                confidence, best_idx = torch.max(probs, dim=-1)
+                query_results[q_name] = {
+                    "logits": logits,
+                    "probs": probs,
+                    "confidence": confidence,
+                    "best_choice_idx": best_idx,
+                }
+            return {"escalate_risk": escalate, "queries": query_results}
+
+        logits, probs, escalate = self.decision_head(
+            sequence_hidden_states=sequence_hidden,
+            marker_indices=marker_indices,
+            marker_mask=marker_mask,
+            option_spans=option_spans,
+        )
+        confidence, best_idx = torch.max(probs, dim=-1)
+        return {
+            "logits": logits,
+            "probs": probs,
+            "confidence": confidence,
+            "best_choice_idx": best_idx,
+            "escalate_risk": escalate,
+        }
+
 
 

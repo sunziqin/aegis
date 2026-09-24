@@ -8,8 +8,26 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pytest
+import torch
 import open_s1 as s1
+from transformers import AutoTokenizer
 from open_s1.primitives import Choice, Score, Noul, Boolean, ChoiceResult, ScoreResult, NoulResult
+from src.tokenizer_utils import encode_multi_query_batch
+
+
+BASE_MODEL = __import__("os").environ.get(
+    "BASE_MODEL_PATH", "E:/asr-endpoint-service/models/base/Qwen2.5-0.5B-Instruct"
+)
+
+
+def _legacy_v6_artifact() -> bool:
+    weight_file = Path(__file__).resolve().parent.parent / "output" / "s1_model_v6" / "s1_decision_weights.pt"
+    if not weight_file.exists():
+        return False
+    checkpoint = torch.load(weight_file, map_location="cpu")
+    config = checkpoint.get("config") if isinstance(checkpoint, dict) else None
+    return not isinstance(config, dict) or not config.get("train_file") or not config.get("train_data_sha256")
 
 
 def test_primitives_construction():
@@ -38,10 +56,29 @@ def test_primitives_construction():
     assert n.options[1] == "成立/是/同意"
 
 
+def test_multi_query_option_spans_stop_at_query_boundary():
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    queries = {
+        "first": ("Choose the first action", ["A", "B"]),
+        "second": ("Choose the second action", ["C", "D"]),
+    }
+    batch = encode_multi_query_batch(tokenizer, ["state"], [queries], max_length=256)
+    input_ids = batch["input_ids"][0]
+    first_start, first_end = batch["query_markers"]["first"]["spans"][0, 1].tolist()
+    first_text = tokenizer.decode(input_ids[first_start:first_end], skip_special_tokens=True)
+    assert "B" in first_text
+    assert "[决策指令: second]" not in first_text
+
+
 def test_live_single_forward_multi_query():
     """Verify single-forward parallel evaluation of multiple queries."""
-    model_dir = "E:/s1-decision-model/output/s1_model_v3"
-    router = s1.load(model_dir=model_dir)
+    model_dir = Path(__file__).resolve().parent.parent / "output" / "s1_model_v6"
+    try:
+        router = s1.load(model_dir=model_dir)
+    except RuntimeError as exc:
+        if _legacy_v6_artifact():
+            pytest.skip("V6 integration artifact requires retraining with current split provenance")
+        raise
 
     user_state = (
         "用户：我刚才下单的订单 20260921-9981 怎么被系统无故取消了？我付了钱的！"
@@ -103,6 +140,10 @@ def test_live_single_forward_multi_query():
     assert len(res.keys()) == 4
     assert res["intent"].selected_option in schema["intent"].options
     assert 1.0 <= res["urgency"].score <= 5.0
+    assert hasattr(res, "can_act"), "EvaluationResult must have can_act property"
+    assert res.can_act == (res.overall_verdict == "act")
+    assert res.is_act() == (res.overall_verdict == "act")
+    assert res.intent.can_act == (res.intent.verdict == "act")
 
     # Benchmark warm latency across 5 runs
     # Warmup
@@ -122,4 +163,3 @@ if __name__ == "__main__":
     print("[PASS] Primitives construction test passed.")
     test_live_single_forward_multi_query()
     print("[PASS] Live single-forward multi-query test passed.")
-

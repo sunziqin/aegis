@@ -51,6 +51,13 @@ coverage.xml
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Local datasets, caches, model weights, reports, and runtime logs
+data/*.json
+data/cache/
+data/disjoint_v6/
+output/
+*.log
+
 # Environments
 .env
 .venv

@@ -9,7 +9,16 @@ Matches and extends TypeSafe Jev & Laya decision primitives:
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Union
+import math
 import numpy as np
+
+
+def _display_precision(values: Sequence[float]) -> int:
+    """Choose enough decimal places for score values to remain distinguishable."""
+    for precision in range(1, 16):
+        if len({f"{value:.{precision}f}" for value in values}) == len(values):
+            return precision
+    raise ValueError("Score values are too close to display as distinct decimal labels")
 
 
 @dataclass
@@ -24,8 +33,18 @@ class Choice:
     question: str = "请选择最匹配的候选动作"
 
     def __post_init__(self):
-        if not self.options or len(self.options) < 2:
-            raise ValueError("Choice primitive requires at least 2 candidate options.")
+        if not isinstance(self.options, (list, tuple)):
+            raise ValueError("Choice options must be a list or tuple of strings.")
+        if not self.options:
+            raise ValueError("Choice primitive requires a non-empty options list.")
+        if any(not isinstance(candidate, str) or not candidate.strip() for candidate in self.options):
+            raise ValueError("Choice options must be non-empty strings.")
+        cleaned = [candidate.strip() for candidate in self.options]
+        if len(cleaned) < 2:
+            raise ValueError(f"Choice primitive requires at least 2 distinct non-empty candidate options, got {len(cleaned)}.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError(f"Choice options must be mutually distinct. Found duplicates: {self.options}")
+        self.options = cleaned
 
 
 @dataclass
@@ -47,24 +66,52 @@ class Score:
     question: str = "请对该指标进行量化评估"
 
     def __post_init__(self):
+        try:
+            min_val = float(self.min_val)
+            max_val = float(self.max_val)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Score min_val and max_val must be finite numbers") from exc
+        if not math.isfinite(min_val) or not math.isfinite(max_val):
+            raise ValueError("Score min_val and max_val must be finite numbers")
+        if isinstance(self.steps, bool) or not isinstance(self.steps, int):
+            raise ValueError("Score steps must be an integer")
         if self.steps < 2:
             raise ValueError("Score primitive requires at least 2 steps.")
-        if self.min_val >= self.max_val:
+        if min_val >= max_val:
             raise ValueError("min_val must be strictly less than max_val.")
+
+        self.min_val = min_val
+        self.max_val = max_val
         
         self.values = [
             self.min_val + i * (self.max_val - self.min_val) / (self.steps - 1)
             for i in range(self.steps)
         ]
+        self._display_precision = _display_precision(self.values)
+        formatted_values = [f"{value:.{self._display_precision}f}" for value in self.values]
         
         if self.labels is None:
-            self.labels = [f"{v:.1f}分" for v in self.values]
-        elif len(self.labels) != self.steps:
-            raise ValueError(f"labels count ({len(self.labels)}) must match steps ({self.steps}).")
+            self.labels = [f"{value}分" for value in formatted_values]
+        else:
+            if not isinstance(self.labels, (list, tuple)):
+                raise ValueError("Score labels must be a list or tuple of strings")
+            if len(self.labels) != self.steps:
+                raise ValueError(f"labels count ({len(self.labels)}) must match steps ({self.steps}).")
+            cleaned_labels = []
+            for label in self.labels:
+                if not isinstance(label, str) or not label.strip():
+                    raise ValueError("Score labels must be non-empty strings")
+                cleaned_labels.append(label.strip())
+            if len(set(cleaned_labels)) != len(cleaned_labels):
+                raise ValueError("Score labels must be distinct")
+            self.labels = cleaned_labels
 
     @property
     def options(self) -> List[str]:
-        return [f"{v:.1f}: {lbl}" for v, lbl in zip(self.values, self.labels)]
+        return [
+            f"{value:.{self._display_precision}f}: {label}"
+            for value, label in zip(self.values, self.labels)
+        ]
 
 
 @dataclass
@@ -82,6 +129,24 @@ class Noul:
     question: str = "判定该条件是否成立"
     true_label: str = "成立/是/同意"
     false_label: str = "不成立/否/拒绝"
+
+    def __post_init__(self):
+        if isinstance(self.threshold, bool):
+            raise ValueError("Noul threshold must be a finite number in [0, 1].")
+        try:
+            threshold = float(self.threshold)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Noul threshold must be a finite number in [0, 1].") from exc
+        if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"Noul threshold must be a finite number in [0, 1], got {self.threshold!r}.")
+        self.threshold = threshold
+        for name, label in (("true_label", self.true_label), ("false_label", self.false_label)):
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError(f"Noul {name} must be a non-empty string")
+        self.true_label = self.true_label.strip()
+        self.false_label = self.false_label.strip()
+        if self.true_label == self.false_label:
+            raise ValueError("Noul true_label and false_label must be distinct")
 
     @property
     def options(self) -> List[str]:
@@ -108,6 +173,10 @@ class ChoiceResult:
     probabilities: Dict[str, float]
     explanation: str
 
+    @property
+    def can_act(self) -> bool:
+        return self.verdict == "act"
+
     def is_act(self) -> bool:
         return self.verdict == "act"
 
@@ -121,6 +190,10 @@ class ScoreResult:
     probabilities: Dict[str, float]
     explanation: str
 
+    @property
+    def can_act(self) -> bool:
+        return self.verdict == "act"
+
     def is_act(self) -> bool:
         return self.verdict == "act"
 
@@ -133,6 +206,10 @@ class NoulResult:
     verdict: str  # "act" or "escalate"
     probabilities: Dict[str, float]
     explanation: str
+
+    @property
+    def can_act(self) -> bool:
+        return self.verdict == "act"
 
     def is_act(self) -> bool:
         return self.verdict == "act"
@@ -151,6 +228,13 @@ class EvaluationResult:
     overall_verdict: str
     escalate_risk: float
     latency_ms: float
+
+    @property
+    def can_act(self) -> bool:
+        return self.overall_verdict == "act"
+
+    def is_act(self) -> bool:
+        return self.overall_verdict == "act"
 
     def __getitem__(self, key: str) -> Union[ChoiceResult, ScoreResult, NoulResult]:
         return self.results[key]

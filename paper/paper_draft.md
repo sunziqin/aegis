@@ -12,9 +12,9 @@ Autonomous Large Language Model (LLM) agents frequently execute atomic, high-fre
 Aegis-S1 introduces:
 1. A **Dynamic Option-Marker Attention Head** that models mutual competition across variable candidate actions;
 2. **Distribution-free Conformal Prediction** calibration, establishing rigorous, finite-sample statistical safety guarantees ($P(Y \in \mathcal{C}(X)) \ge 1 - \alpha$) that convert epistemic uncertainty into principled escalation rather than silent failures;
-3. Native long-context (up to 32K tokens) and bilingual (Chinese & English) operational capabilities. 
+3. A reference implementation with a 4096-token hard input limit; its bidirectional 4D attention has $O(L^2)$ memory cost, so longer-context and bilingual behavior require separate measurement.
 
-Empirical evaluations across 103 diverse multi-task decision scenarios demonstrate that Aegis-S1 improves overall accuracy by **+15.5%** (reaching **95.6%** on tool routing) compared to an unmodified base LLM, while reducing inference latency by nearly **50%** (to 50.3 ms). Furthermore, under rigorous Out-of-Distribution (OOD) tests across strictly unseen domains (e.g., bioinformatics, quantitative finance), Aegis-S1 achieves a **0.0% False-Action rate**, demonstrating that principled non-autoregressive decision models provide a faster, safer, and more reliable substrate for agentic automation.
+The current repository does not contain a regenerated, provenance-validated V6 result. The historical artifacts are intentionally rejected by the evaluator and SDK, so accuracy, latency, and OOD safety numbers must be regenerated and reported from the current disjoint splits before they are used as empirical claims.
 
 ---
 
@@ -33,9 +33,9 @@ Current AI agent frameworks overwhelmingly rely on large generative autoregressi
 Recently, closed-source models such as TypeSafe Jev and open-source models such as Laya (2026) have attempted to revive encoder-based decision systems. However, existing implementations suffer from severe limitations: Laya truncates the context window to 512 tokens, relies on heuristic reinforcement learning (RLCD) without theoretical safety guarantees, and is restricted to English.
 
 In this paper, we introduce **Aegis-S1**, addressing these limitations through three foundational contributions:
-* **Architectural Scaling & Invariance**: We design a dynamic option-marker scoring mechanism with inter-option cross-attention that operates natively within a 32K token context window and guarantees positional invariance.
+* **Architectural Scaling & Invariance**: We design a dynamic option-marker scoring mechanism with inter-option cross-attention. The current reference implementation supports up to 4096 input tokens and must be benchmarked for memory at each sequence length.
 * **Provable Epistemic Safety**: We incorporate Split Conformal Prediction into the System 1 decision pipeline, establishing a mathematical upper bound on error rates ($\alpha \le 5\%$) that enables provably safe automated execution and principled escalation.
-* **Empirical Validation**: We curate and release **S1-Bench-100** and **S1-OOD-Bench**, confirming that Aegis-S1 achieves state-of-the-art decision accuracy, halves latency, and reduces silent failure rates to 0.0% on unseen domains.
+* **Empirical Validation**: We provide disjoint train/calibration/test tooling and provenance-bound reports. Quantitative claims remain pending until a current V6 checkpoint is retrained, calibrated, and evaluated.
 
 ---
 
@@ -112,21 +112,15 @@ $$\mathbb{P}\left( Y_{n+1} \in \mathcal{C}(X_{n+1}) \right) \ge 1 - \alpha$$
 ### 3.1 Benchmark Datasets
 We evaluate models across two benchmark suites:
 1. **S1-Bench-100**: 103 in-distribution tasks across Agent Tool Routing (45), Guardrails (30), and Dialogue Turn-Taking (28).
-2. **S1-OOD-Bench**: 25 strictly unseen tasks spanning Bioinformatics, Quantitative Finance, 3D Graphics Shaders, Cloud DevOps, and Steganographic Injections.
+2. **S1-OOD-Bench**: 25 held-out OOD-style tasks spanning Bioinformatics, Quantitative Finance, 3D Graphics Shaders, Cloud DevOps, and Steganographic Injections. The current split contract verifies normalized-state disjointness; it does not by itself prove that every question template or domain term is unseen.
 
 ### 3.2 In-Distribution Results
 
-| Model | Overall Acc (%) | Tool Routing (%) | Guardrails (%) | Dialogue Intent (%) | Latency (ms) | Position Bias |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Unmodified Qwen2.5-0.5B** | 70.9% | 77.8% | 56.7% | 75.0% | 98.2 ms | Severe (Collapsed to A) |
-| **Aegis-S1-0.5B (Ours)** | **86.4%** | **95.6%** | **73.3%** | **85.7%** | **50.3 ms** | **Zero (Symmetric)** |
-| *Improvement* | *+15.5%* | *+17.8%* | *+16.6%* | *+10.7%* | *-48.7%* | *Eliminated* |
+The current V6 result table is intentionally pending. The repository contains only legacy artifacts for the earlier benchmark; they are rejected by the current provenance checks and cannot support accuracy or latency claims. Regenerate this table from the current disjoint splits and record the dependency versions, checkpoint hash, calibration hash, and target hardware with the report.
 
 ### 3.3 Out-of-Distribution (OOD) Safety & Refusal
 
-Under completely unseen OOD probes:
-* **Unmodified 0.5B**: Yielded an **8.0% silent error rate**, blindly executing dangerous or erroneous tool calls.
-* **Aegis-S1**: Correctly escalated **68.0%** of ambiguous OOD instances, resulting in a **0.0% False-Action Rate**.
+On the held-out OOD-style probe set, report the coverage, selective risk, act rate, and escalation rate from the regenerated provenance-bound report. Historical OOD numbers are not carried forward into this draft.
 
 ---
 
@@ -138,4 +132,4 @@ Under completely unseen OOD probes:
 ---
 
 ## 5. Conclusion
-Aegis-S1 demonstrates that atomic AI agent decisions do not require slow autoregressive text generation. By pairing dynamic option-marker attention with conformal risk bounds, Aegis-S1 achieves sub-30ms decision reflexes with provable safety guarantees, opening a new paradigm for efficient, robust autonomous systems.
+Aegis-S1 provides a non-autoregressive decision path and a conformal escalation mechanism. The coverage guarantee depends on a valid exchangeable calibration protocol; latency, accuracy, and context claims remain empirical questions for the regenerated evaluation.

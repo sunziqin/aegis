@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Dict
+import numpy as np
 import torch
 from peft import LoraConfig, get_peft_model
 from transformers import AutoTokenizer, AutoConfig, AutoModel
@@ -38,7 +39,7 @@ def load_trained_s1_model(device: str):
     backbone = AutoModel.from_pretrained(
         BASE_MODEL_PATH,
         config=config,
-        dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+        torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
     )
     lora_config = LoraConfig(
         r=16,
@@ -85,7 +86,14 @@ def run_benchmark():
     val_opts = [s["options"] for s in val_samples]
     val_targets = [s["target_idx"] for s in val_samples]
     
-    val_batch = encode_decision_batch(tokenizer, val_prompts, val_opts, val_targets, max_length=512, device=device)
+    val_batch = encode_decision_batch(
+        tokenizer=tokenizer,
+        batch_prompts=val_prompts,
+        options_per_sample=val_opts,
+        targets=val_targets,
+        max_length=512,
+        device=device,
+    )
     with torch.no_grad():
         val_out = model(
             input_ids=val_batch["input_ids"],
@@ -114,7 +122,14 @@ def run_benchmark():
     test_opts = [s["options"] for s in test_samples]
     test_targets = [s["target_idx"] for s in test_samples]
     
-    test_batch = encode_decision_batch(tokenizer, test_prompts, test_opts, test_targets, max_length=512, device=device)
+    test_batch = encode_decision_batch(
+        tokenizer=tokenizer,
+        batch_prompts=test_prompts,
+        options_per_sample=test_opts,
+        targets=test_targets,
+        max_length=512,
+        device=device,
+    )
     
     # Warmup
     with torch.no_grad():
@@ -133,6 +148,7 @@ def run_benchmark():
     domain_stats = {}
     
     all_probs = []
+    all_valid_masks = []
     
     for i in range(total_samples):
         in_ids = test_batch["input_ids"][i:i+1]
@@ -155,6 +171,7 @@ def run_benchmark():
             correct_count += 1
             
         all_probs.append(out["probs"].float().cpu().numpy()[0])
+        all_valid_masks.append(np.arange(out["probs"].shape[1]) < len(test_opts[i]))
         
         dom = test_samples[i]["domain"]
         if dom not in domain_stats:
@@ -164,7 +181,7 @@ def run_benchmark():
             domain_stats[dom]["correct"] += 1
 
     # Conformal evaluation on test set
-    conformal_results = calibrator.predict(all_probs)
+    conformal_results = calibrator.predict(all_probs, valid_mask=np.asarray(all_valid_masks))
     act_count = sum(1 for r in conformal_results if r["verdict"] == "act")
     escalate_count = sum(1 for r in conformal_results if r["verdict"] == "escalate")
     reject_count = sum(1 for r in conformal_results if r["verdict"] == "reject")

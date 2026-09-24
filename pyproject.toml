@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-s1"
+version = "2.1.0"
+description = "Aegis-S1: Low-latency System-1 non-autoregressive decision engine for AI agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Aegis-S1 Team" }
+]
+keywords = [
+    "system-1",
+    "fast-decision",
+    "conformal-prediction",
+    "non-autoregressive",
+    "ai-agent",
+    "routing"
+]
+dependencies = [
+    "torch>=2.0.0",
+    "transformers==4.50.0",
+    "peft>=0.7.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "httpx>=0.24.0",
+]
+ops = [
+    "paramiko>=3.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["open_s1*", "src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

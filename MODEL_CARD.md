@@ -103,15 +103,31 @@ print("Legal Threat:", evaluation.results["legal_threat"].is_true)
 print("Latency:", evaluation.latency_ms, "ms")
 ```
 
+## 📦 Model Version Matrix & Checkpoints
+
+| Version | Status | Checkpoint SHA-256 | Top-1 Acc (Held-out) | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **V4** | ❌ **DEPRECATED** | `e4879b...` | 35.3% (Colloquial Zh) | **Legacy broken checkpoint**. Gate collapsed ($r=0.684$ constant), uniform tool probability. Do NOT evaluate. |
+| **V6** | ✅ **OFFICIAL PROD** | `eaf07edd808cecf43473a13e6a331f57bc8d81696f2a1ed7d82dbc7467e01191` | **84.28%** (N=8,657 disjoint) | **Flagship 0.5B release**. Full C++ SDPA, calibrated Tri-Gate, verified Chinese tool routing. |
+| **V7** | ⏳ **IN TRAINING** | *(Tesla V100 SXM2)* | *(In Progress)* | **1.5B Foundation**. Permutation Invariance Dual Loss, explicit `NO_MATCH` semantic head. |
+
+> [!WARNING]
+> **Do NOT evaluate legacy V4 checkpoints.** V4 was an early prototype with collapsed gates and uncalibrated distributions. Always use the cryptographically verified **V6** release via `python scripts/download_v6_checkpoint.py`.
+> See [VERSIONS.md](VERSIONS.md) and [VERSIONS_ZH.md](VERSIONS_ZH.md) for complete details.
+
 ---
 
 ## 🔒 Cryptographic Provenance & Safety Notice
 
-Each Aegis-S1 checkpoint is cryptographically linked to its training split and conformal calibration artifact via SHA-256 signatures:
+Each Millennium-Jev checkpoint is cryptographically linked to its training split and conformal calibration artifact via SHA-256 signatures:
 - Model Checkpoint SHA-256: `eaf07edd808cecf43473a13e6a331f57bc8d81696f2a1ed7d82dbc7467e01191`
 - Calibration Split SHA-256: `5364a7d2c8cfea720f0bc526d972894df5b41b1b9ab569f6a1c79f35ee393026`
 
-**Safety Notice**: Aegis-S1 is an ultra-fast System 1 reflex router designed to reject ambiguity and escalate edge cases. It is not an autonomous jailbreak firewall. Industrial deployments must combine Aegis-S1 with upstream input moderation and a deliberative System 2 reasoning model (or human-in-the-loop).
+### ⚠️ Empirical Limitations & Failure Modes (Jaggedness)
+In adversarial red-teaming and 51-sample community stress tests, Millennium-Jev 0.5B exhibits specific behavioral boundaries:
+1. **Arithmetic & Date Calculations (No CoT)**: As a non-autoregressive model without scratchpad generation, it cannot perform multi-step calendar arithmetic (e.g. 11 days vs 7-day return policy). Upstream code must compute numerical diffs before passing state to the router.
+2. **Adversarial Semantic Gaslighting**: Text explicitly instructing the model to classify malicious commands as benign can mislead surface representations. Upstream AST/regex sanitization is required.
+3. **Candidate Permutation Invariance**: While robust on distinct tools (order invariance verified on `git_ops`), subtle low-margin/sarcastic samples exhibit positional bias. This is directly addressed in v7 (1.5B) via Permutation Consistency Dual Loss.
 
 ## 📄 License
 

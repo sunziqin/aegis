@@ -186,11 +186,12 @@ class AegisRouter:
 
         weight_file = model_dir / "s1_decision_weights.pt"
         
-        # Strict validation: prevent silent initialization with random weights
         if not weight_file.exists():
             raise FileNotFoundError(
-                f"Aegis-S1 weight file not found at: {weight_file}. "
-                f"Please ensure trained model weights exist before initializing AegisRouter."
+                f"Millennium-Jev model weights not found at: {weight_file}.\n"
+                f"Please run 'python scripts/download_v6_checkpoint.py' to automatically download and verify "
+                f"the official V6 release (SHA-256: eaf07edd808cecf43473a13e6a331f57bc8d81696f2a1ed7d82dbc7467e01191).\n"
+                f"⚠️ Note: Do NOT use legacy V4 checkpoints as they are officially deprecated."
             )
 
         checkpoint = torch.load(weight_file, map_location=device)

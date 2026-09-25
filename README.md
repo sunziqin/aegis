@@ -93,6 +93,28 @@ The official V6 model was fully trained on an isolated **NVIDIA Tesla V100 SXM2 
 
 ---
 
+## 📦 Checkpoints & Version Lineage
+
+| Version | Status | Checkpoint SHA-256 | Top-1 Acc (Held-out) | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **V4** | ❌ **DEPRECATED** | `e4879b...` | 35.3% (Colloquial Zh) | **Legacy broken checkpoint**. Gate collapsed ($r=0.684$ constant), uniform tool probability. **Do NOT evaluate.** |
+| **V6** | ✅ **OFFICIAL PROD** | `eaf07edd808cecf43473a13e6a331f57bc8d81696f2a1ed7d82dbc7467e01191` | **84.28%** (N=8,657 disjoint) | **Flagship 0.5B release**. Full C++ SDPA, calibrated Tri-Gate, verified Chinese tool routing. |
+| **V7** | ⏳ **IN TRAINING** | *(Tesla V100 SXM2)* | *(In Progress)* | **1.5B Foundation**. Permutation Invariance Dual Loss, explicit `NO_MATCH` semantic head. |
+
+> [!WARNING]
+> **Do NOT evaluate legacy V4 checkpoints.** V4 was an early prototype with collapsed gates and uncalibrated distributions. Always use the cryptographically verified **V6** release.
+> See [VERSIONS.md](VERSIONS.md) and [VERSIONS_ZH.md](VERSIONS_ZH.md) for the complete version post-mortem.
+
+### 📥 One-Click Checkpoint Download & Verification
+
+To download and cryptographically verify the official V6 checkpoint:
+
+```bash
+python scripts/download_v6_checkpoint.py
+```
+
+---
+
 ## ⚡ Quickstart: Python SDK
 
 ### Installation

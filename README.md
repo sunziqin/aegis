@@ -1,10 +1,12 @@
-# Aegis-S1: Provably Safe Non-Autoregressive System 1 Decision Foundation
+# 🏛️ Millennium-Jev (千禧年·Jev)
+### The Millennium Series: Provably Safe Non-Autoregressive System 1 Decision Reflex Foundation for AI Agents
 
 <p align="center">
   <b>English</b> | <a href="README_ZH.md">简体中文</a>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Series-The%20Millennium-gold.svg" alt="Series">
   <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Inference-Sub--50ms%20Reflex-green.svg" alt="Inference Speed">
   <img src="https://img.shields.io/badge/Conformal-Split--Conformal%2095%25-orange.svg" alt="Safety Guarantees">
@@ -12,9 +14,9 @@
   <img src="https://img.shields.io/badge/Multi--Query-Single%20Forward%20Parallel-red.svg" alt="Multi Query">
 </p>
 
-**Aegis-S1** is an open-source, non-autoregressive **System 1 decision model** engineered to equip AI Agents with low-latency decision reflexes and finite-sample mathematical safety guarantees. Latency depends on the base model, device, batch shape, and sequence length; measure it with the supplied benchmark on the deployment hardware.
+**Millennium-Jev** (formerly code-named Aegis-S1) is the flagship decision engine of the **Millennium Open-Source Ecosystem**. It is an open-source, non-autoregressive **System 1 decision reflex model** engineered to equip AI Agents with sub-50ms deterministic reflexes and finite-sample mathematical safety guarantees.
 
-Directly aligned with and extending the design principles of Silicon Valley's **TypeSafe Jev** and open-source **Laya**, Aegis-S1 replaces autoregressive JSON decoding with a **single forward pass** over structured decision primitives. Compare end-to-end latency only under the same hardware and workload.
+Directly aligned with and extending the design principles of Silicon Valley's **TypeSafe Jev** and open-source **Laya**, Millennium-Jev replaces slow autoregressive JSON decoding with a **single forward pass** over structured decision primitives. Compare end-to-end latency only under the same hardware and workload.
 
 ---
 

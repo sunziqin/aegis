@@ -4,6 +4,8 @@ language:
 - en
 license: apache-2.0
 tags:
+- millennium
+- jev
 - system-1
 - decision-model
 - non-autoregressive
@@ -15,9 +17,9 @@ base_model: Qwen/Qwen2.5-0.5B-Instruct
 pipeline_tag: zero-shot-classification
 ---
 
-# Aegis-S1-0.5B: Provably Safe Non-Autoregressive System 1 Decision Model
+# 🏛️ Millennium-Jev-0.5B: Provably Safe Non-Autoregressive System 1 Decision Model
 
-**Aegis-S1-0.5B** is an open-source, non-autoregressive decision reflex foundation model designed for AI Agents, LLM routers, and industrial workflow dispatchers. Built upon **Qwen2.5-0.5B-Instruct**, it introduces **Vectorized Option Span Mean-Pooling**, **Native C++ SDPA Bidirectional Attention**, and **Split-Conformal Prediction ($\alpha=0.05$)** with a production **Tri-Gate Protocol** to achieve sub-50ms deterministic decisions with mathematical safety guarantees.
+**Millennium-Jev-0.5B** (千禧年·Jev) is the flagship decision reflex foundation model of the **Millennium Open-Source Ecosystem** (formerly code-named Aegis-S1). Built upon **Qwen2.5-0.5B-Instruct**, it introduces **Vectorized Option Span Mean-Pooling**, **Native C++ SDPA Bidirectional Attention**, and **Split-Conformal Prediction ($\alpha=0.05$)** with a production **Tri-Gate Protocol** to achieve sub-50ms deterministic decisions with mathematical safety guarantees.
 
 ## 🌟 Key Highlights
 

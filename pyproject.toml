@@ -3,18 +3,20 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "open-s1"
+name = "millennium-jev"
 version = "2.1.0"
-description = "Aegis-S1: Low-latency System-1 non-autoregressive decision engine for AI agents"
+description = "Millennium-Jev: Provably Safe Non-Autoregressive System 1 Decision Reflex Foundation for AI Agents"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Aegis-S1 Team" }
+    { name = "Millennium Open Source Team" }
 ]
 keywords = [
+    "millennium",
+    "jev",
     "system-1",
-    "fast-decision",
+    "decision-reflex",
     "conformal-prediction",
     "non-autoregressive",
     "ai-agent",
@@ -41,7 +43,7 @@ ops = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["open_s1*", "src*"]
+include = ["millennium_jev*", "open_s1*", "src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

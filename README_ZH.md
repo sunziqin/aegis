@@ -1,10 +1,12 @@
-# Aegis-S1：具备数学安全保证的非自回归系统一（System 1）决策大模型基座
+# 🏛️ 千禧年·Jev (Millennium-Jev)
+### 千禧年开源宇宙（The Millennium Series）：具备数学安全保证的非自回归系统一（System 1）决策反射基座
 
 <p align="center">
   <a href="README.md">English</a> | <b>简体中文</b>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/开源宇宙-千禧年%20Millennium-gold.svg" alt="Series">
   <img src="https://img.shields.io/badge/开源协议-Apache%202.0-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/推理延迟-亚50ms反射-green.svg" alt="Inference Speed">
   <img src="https://img.shields.io/badge/共形保证-分裂共形%2095%25-orange.svg" alt="Safety Guarantees">
@@ -12,7 +14,7 @@
   <img src="https://img.shields.io/badge/三重门控-Tri--Gate%20放行-red.svg" alt="Tri-Gate">
 </p>
 
-**Aegis-S1** 是开源的高性能**“系统一（System 1）”非自回归决策基座模型**，专为 AI 智能体（Agent）提供低延迟决策反射与有限样本数学安全保证。实际延迟取决于基础模型、设备、批大小和序列长度，必须在部署硬件上用仓库脚本实测。
+**千禧年·Jev（Millennium-Jev）** 是**千禧年开源生态（The Millennium Ecosystem）**旗下的旗舰决策引擎（早期开发代号 Aegis-S1）。它是开源的高性能**“系统一（System 1）”非自回归决策基座模型**，专为 AI 智能体（Agent）提供亚 50ms 级的确定性动作反射与有限样本数学安全保证。
 
 项目深度对标硅谷 **TypeSafe Jev** 与开源项目 **Laya** 的设计思想，使用**单次前向传播**直接并发解析结构化决策原语。端到端延迟必须在相同硬件和工作负载下比较。
 

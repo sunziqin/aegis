@@ -576,8 +576,11 @@ def load(
     )
 
 
+MillenniumRouter = AegisRouter
+
 __all__ = [
     "load",
+    "MillenniumRouter",
     "AegisRouter",
     "Choice",
     "Score",

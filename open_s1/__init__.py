@@ -169,18 +169,15 @@ class AegisRouter:
 
         if model_dir is None:
             repo_root = Path(__file__).resolve().parent.parent
-            model_candidates = [
-                repo_root / "output" / "s1_model_v6",
-                repo_root / "output" / "s1_model_v5",
-                repo_root / "output" / "s1_model_v4",
-                repo_root / "output" / "s1_model_v3",
-                repo_root / "output" / "s1_model_v2",
-                Path("E:/s1-decision-model/output/s1_model_v6"),
-            ]
-            model_dir = next(
-                (candidate for candidate in model_candidates if (candidate / "s1_decision_weights.pt").exists()),
-                model_candidates[0],
-            )
+            default_v6_dir = repo_root / "output" / "s1_model_v6"
+            if not (default_v6_dir / "s1_decision_weights.pt").exists():
+                try:
+                    from scripts.download_v6_checkpoint import download_from_hf
+                    logger.info("Local V6 weights missing. Triggering automatic download from Hugging Face...")
+                    download_from_hf(default_v6_dir)
+                except Exception as dl_err:
+                    logger.warning(f"Could not automatically download weights: {dl_err}")
+            model_dir = default_v6_dir
         else:
             model_dir = Path(model_dir)
 

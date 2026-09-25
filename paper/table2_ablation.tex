@@ -1,0 +1,43 @@
+% ==========================================================
+% TABLE 2: COMPREHENSIVE ABLATION STUDY ACROSS FOUR PILLARS
+% ==========================================================
+\begin{table*}[t]
+\centering
+\small
+\begin{subtable}[t]{\textwidth}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Gating Protocol} & \textbf{Act Clearance (\%)} & \textbf{Act Precision (\%)} & \textbf{Selective Risk (\%)} & \textbf{Coverage (\%)} \\
+\midrule
+\textbf{Full Tri-Gate (Ours)} & 74.01\% & 94.38\% & 5.62\% & 94.17\% \\
+Tri-Gate w/o Anomaly Gate & 74.01\% & 94.38\% & 5.62\% & 94.17\% \\
+Conformal Singleton Only & 74.01\% & 94.38\% & 5.62\% & 94.17\% \\
+Naive Softmax (Matched $\tau=0.953$) & 74.52\% & 94.34\% & 5.66\% & 94.17\% \\
+Naive Softmax ($\tau=0.85$) & 83.27\% & 91.39\% & 8.61\% & 94.17\% \\
+Naive Softmax ($\tau=0.95$) & 74.52\% & 94.34\% & 5.66\% & 94.17\% \\
+Unrestricted Argmax ($\tau=0.0$) & 100.00\% & 84.24\% & 15.76\% & 94.17\% \\
+\bottomrule
+\end{tabular}
+\caption{Ablation 2A: Gating Policy & Trustworthy Decision Making under Conformal Boundaries.}
+\label{tab:ablation_gating}
+\end{subtable}
+
+\vspace{2mm}
+\begin{subtable}[t]{\textwidth}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Architectural Component} & \textbf{Configuration} & \textbf{Top-1 Accuracy} & \textbf{Multi-Token Acc} & \textbf{Position $A$-Bias} \\
+\midrule
+\textbf{Full Millennium-Jev (V6)} & Span Pooling + SDPA & \textbf{83.76\%} & \textbf{83.76\%} & \textbf{11.97\%} \\
+w/o Span Pooling & Single Token Marker & 76.35\% ($-7.40\%$) & 76.35\% ($-7.40\%$) & 11.97\% \\
+w/o Bidirectional Attention & Lower-Triangular Causal & 73.94\% ($-10.64\%$) & -- & 20.68\% ($+8.71\%$) \\
+\bottomrule
+\end{tabular}
+\caption{Ablation 2B: Architectural Component Breakdown on Disjoint Representation Learning.}
+\label{tab:ablation_architecture}
+\end{subtable}
+\caption{Comprehensive Ablation Studies. All metrics evaluated on strictly state-disjoint test data ($N=8,657$).}
+\label{tab:main_ablation}
+\end{table*}

@@ -55,6 +55,7 @@ coverage.xml
 data/*.json
 data/cache/
 data/disjoint_v6/
+models/
 output/
 *.log
 

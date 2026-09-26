@@ -17,7 +17,7 @@
 \newtheorem{lemma}{Lemma}
 \newtheorem{definition}{Definition}
 
-\title{\textbf{Millennium-Jev: Provably Safe Non-Autoregressive System 1 Decision Reflexes for Autonomous AI Agents}}
+\title{\textbf{Millennium-Jev: Calibrated Non-Autoregressive System 1 Decision Reflexes for Autonomous AI Agents}}
 \author{
   \textbf{Ziqin Sun}\thanks{Project Lead and Primary Author. GitHub: \url{https://github.com/sunziqin/millennium-jev}} \quad
   \textbf{The Millennium Research Team} \\
@@ -29,11 +29,11 @@
 \maketitle
 
 \begin{abstract}
-Autonomous AI agent frameworks frequently require thousands of high-frequency micro-decisions per hour—including dynamic tool selection, workflow dispatching, intent classification, and safety guardrailing. Contemporary agent architectures overwhelmingly delegate these atomic decisions to generative autoregressive Large Language Models (LLMs). This induces an unsustainable \textit{System 2 latency crisis}: sequential token-by-token decoding imposes 500--2,000\,ms of latency per step, suffers from severe position bias ($A$-bias), and is vulnerable to uncalibrated, overconfident hallucinations on out-of-distribution (OOD) inputs. 
+Autonomous AI agent frameworks frequently require thousands of high-frequency micro-decisions per hour—including dynamic tool selection, workflow dispatching, intent classification, and safety guardrailing. Contemporary agent architectures overwhelmingly delegate these atomic decisions to generative autoregressive Large Language Models (LLMs). This induces an unsustainable \textit{System 2 latency crisis}: sequential token-by-token decoding can impose 500--2,000\,ms of latency per step, suffers from position bias ($A$-bias), and is vulnerable to uncalibrated, overconfident errors on out-of-distribution (OOD) inputs. 
 
-In this work, we propose \textbf{Millennium-Jev}, an open-source, non-autoregressive ``System 1'' decision reflex foundation model engineered to provide sub-50\,ms deterministic actions backed by finite-sample mathematical safety guarantees. Millennium-Jev introduces four foundational contributions: (1) \textbf{Vectorized Option Span Mean-Pooling} via batch tensor operations ($\text{torch.bmm}$), resolving semantic collapse on multi-word candidate actions; (2) \textbf{Native C++ Flash-SDPA Bidirectional Attention}, setting underlying causal flags to bypass 4D attention mask allocation ($0$\,KB intermediate mask RAM); (3) \textbf{Single-Forward Multi-Query Parallel Evaluation}, enabling heterogeneous decision primitives (\texttt{Choice}, \texttt{Score}, \texttt{Noul}) to execute simultaneously in a single prompt in 37.5\,ms; and (4) \textbf{Distribution-Free Split-Conformal Prediction} paired with a production \textbf{Tri-Gate Protocol}, mathematically guaranteeing marginal coverage $\mathbb{P}(Y \in \mathcal{C}(X)) \ge 95.0\%$. 
+In this work, we propose \textbf{Millennium-Jev}, an open-source, non-autoregressive ``System 1'' decision reflex foundation model engineered to provide sub-50\,ms deterministic actions. Millennium-Jev introduces four foundational contributions: (1) \textbf{Vectorized Option Span Mean-Pooling} via batch tensor operations ($\text{torch.bmm}$), resolving semantic collapse on multi-word candidate actions; (2) a \textbf{Flash-SDPA Bidirectional Attention path} that can avoid explicit 4D attention-mask materialization; (3) \textbf{Single-Forward Multi-Query Parallel Evaluation}, enabling heterogeneous decision primitives (\texttt{Choice}, \texttt{Score}, \texttt{Noul}) to execute simultaneously in a single prompt in a reported 37.5\,ms benchmark; and (4) \textbf{Distribution-Free Split-Conformal Prediction} paired with a production \textbf{Tri-Gate Protocol}. Under the stated exchangeability assumption, split conformal prediction has a finite-sample marginal coverage theorem; the Tri-Gate selective-risk figures below are empirical measurements rather than a separate risk guarantee. 
 
-Evaluated across a strictly state-disjoint, zero-leakage benchmark of $N=8,657$ blind held-out samples, Millennium-Jev 0.5B achieves an overall Top-1 accuracy of \textbf{84.28\%} (+15.68\% over raw zero-shot Qwen2.5), an empirical conformal coverage of \textbf{94.16\%}, an autonomous act clearance rate of \textbf{73.95\%}, and an autonomous action precision of \textbf{94.36\%} (selective risk restricted to 5.64\%). The complete model weights, calibration artifacts, and codebase are open-sourced under the Apache-2.0 license.
+On the current 8,657-sample held-out split, whose normalized state strings are disjoint from the training and calibration splits, the V6 metadata reports an overall Top-1 accuracy of \textbf{84.28\%}, an empirical conformal coverage of \textbf{94.16\%}, an autonomous act clearance rate of \textbf{73.95\%}, and an autonomous action precision of \textbf{94.36\%} (empirical selective risk 5.64\%). The split check does not establish template or candidate-list disjointness, and the empirical coverage is below the nominal 95\% target; a provenance-bound evaluation report is required before treating these values as a publication claim. 
 \end{abstract}
 
 \section{Introduction}
@@ -70,8 +70,8 @@ Our contributions are summarized as follows:
     \item \textbf{Dual-Process Agent Architecture}: We operationalize Kahneman's dual-process theory for language agents, providing sub-50\,ms reflexive execution while reserving expensive deliberative LLMs strictly for escalated edge cases.
     \item \textbf{Option Span Mean-Pooling \& C++ SDPA Acceleration}: We eliminate marker collapse by pooling representations across entire candidate token spans ($\text{torch.bmm}$) and bypass 4D attention mask allocation ($0$\,KB intermediate mask memory) via native PyTorch C++ Flash-SDPA integration.
     \item \textbf{Single-Forward Multi-Query Parallelism}: We extend structured decision primitives (\texttt{Choice}, \texttt{Score}, \texttt{Noul}) to simultaneous multi-query evaluation in a single forward pass, resolving multi-aspect agent states in 37.5\,ms.
-    \item \textbf{Distribution-Free Conformal Safety}: We introduce the production \textbf{Tri-Gate Protocol}, mathematically bounding marginal error ($\mathbb{P}(Y \in \mathcal{C}(X)) \ge 1 - \alpha$) and selective risk on autonomous actions.
-    \item \textbf{Strictly State-Disjoint Benchmark ($N=8,657$)}: We establish a leak-free evaluation benchmark with verified $0.00\%$ state overlap across financial intents, agent tool routing, safety guardrails, and news classification.
+    \item \textbf{Distribution-Free Conformal Prediction}: We introduce the production \textbf{Tri-Gate Protocol}. The marginal-coverage theorem applies under exchangeability; act precision and selective risk are reported empirically.
+    \item \textbf{State-Disjoint Held-Out Benchmark ($N=8,657$)}: We verify $0.00\%$ overlap of normalized state strings between the train, calibration, and test splits. This check does not claim zero template or candidate-list leakage.
 \end{enumerate}
 
 \section{Related Work \& Novelty Landscape}
@@ -82,7 +82,7 @@ To contextualize our work and verify distinct academic positioning, we categoriz
 Frameworks such as RouteLLM \cite{ong2024routellm}, FrugalGPT \cite{chen2023frugalgpt}, and RouteNLP \cite{ding2024routenlp} train preference-based classifiers to route queries between large frontier models (e.g., GPT-4) and smaller models (e.g., Llama-3-8B). \textit{Distinction}: These systems are external dispatchers that still invoke an autoregressive LLM to generate natural language. In contrast, Millennium-Jev is an internal, non-autoregressive decision cortex that replaces text generation entirely for agent control tasks.
 
 \subsection{Non-Autoregressive Decision Foundations}
-Recent industrial initiatives, notably Silicon Valley's TypeSafe Jev \cite{alphamatch2025jev} and open-source Laya \cite{laya2025modernbert}, investigate non-autoregressive classification for agent primitives. However, Jev is a closed-source, cloud-hosted API exhibiting $>200$\,ms network round-trip latency. Laya, built on ModernBERT-large (395M), is constrained to a 512-token context window, fails on non-English/multilingual tasks, compresses candidate choices into a single token marker ($\langle|\text{fim\_pad}|\rangle$) leading to representation collapse, and lacks statistical safety guarantees. Millennium-Jev scales context to 2,048--32,768 tokens, provides bilingual Chinese-English parity, implements Option Span Mean-Pooling, and integrates Split-Conformal prediction sets.
+Recent industrial initiatives, notably Silicon Valley's TypeSafe Jev \cite{alphamatch2025jev} and open-source Laya \cite{laya2025modernbert}, investigate non-autoregressive classification for agent primitives. However, Jev is a closed-source, cloud-hosted API exhibiting $>200$\,ms network round-trip latency. Laya, built on ModernBERT-large (395M), is constrained to a 512-token context window, fails on non-English/multilingual tasks, compresses candidate choices into a single token marker ($\langle|\text{fim\_pad}|\rangle$) leading to representation collapse, and lacks statistical safety guarantees. The current implementation uses a 2,048-token default and enforces a 4,096-token hard maximum; longer contexts are not supported by the present V6 code. It implements Option Span Mean-Pooling and integrates Split-Conformal prediction sets.
 
 \subsection{Conformal Prediction in Language Models}
 Conformal Prediction (CP) \cite{vovk2005algorithmic, angelopoulos2021gentle} provides finite-sample statistical guarantees without distributional assumptions. Recent works explore CP for generative LLM question answering (e.g., CROQ \cite{croq2024}, CP-OPT \cite{cpopt2024}, and CP-Router \cite{cprouter2024}). However, existing works apply CP on top of slow autoregressive sequence generation. Millennium-Jev is the first to integrate Split-Conformal calibration directly into a non-autoregressive, bi-directional Transformer decision head for real-time agent reflexes.
@@ -150,7 +150,7 @@ Given an exchangeable held-out calibration dataset $\mathcal{D}_{\text{calib}} =
 \begin{equation}
 s_i = 1 - p(Y_i \mid X_i)
 \end{equation}
-For a user-specified significance level $\alpha = 0.05$ (guaranteeing $95\%$ marginal coverage), we compute the empirical quantile:
+For a user-specified significance level $\alpha = 0.05$, the standard split-conformal theorem gives a $1-\alpha=95\%$ marginal-coverage guarantee only when its exchangeability assumptions hold. We compute the empirical quantile:
 \begin{equation}
 \hat{q} = \text{Quantile}\left( s_{1:n}, \frac{\lceil (n+1)(1-\alpha) \rceil}{n} \right)
 \end{equation}
@@ -189,11 +189,11 @@ If any gate fails, the decision is classified as $\texttt{verdict} = \text{escal
 
 \textbf{Dataset Partitioning}: To ensure complete academic integrity and avoid data contamination, we implemented a cryptographic partitioning algorithm. The dataset was split into:
 \begin{itemize}
-    \item \textbf{Training Set}: $N_{\text{train}} = 15,306$ samples (SHA-256: \texttt{7e415e...});
+    \item \textbf{Training Set}: $N_{\text{train}} = 40,816$ samples (SHA-256: \texttt{7e415e...});
     \item \textbf{Calibration Set}: $N_{\text{calib}} = 10,075$ samples (SHA-256: \texttt{5364a7...}, $\hat{q} = 0.9690$);
     \item \textbf{Held-Out Test Set}: $N_{\text{test}} = 8,657$ samples (SHA-256: \texttt{5fa227...}).
 \end{itemize}
-Across all splits, the normalized state text overlap is verified to be \textbf{strictly 0.00\%}.
+Across all splits, overlap of normalized state strings is verified to be \textbf{strictly 0.00\%}. The split contains the same five question templates and recurring candidate-list patterns across partitions, so this is a state-disjoint split rather than a zero-template-leakage benchmark.
 
 \begin{table*}[t]
 \centering
@@ -202,7 +202,7 @@ Across all splits, the normalized state text overlap is verified to be \textbf{s
 \toprule
 \textbf{Metric} & \textbf{Raw Qwen2.5-0.5B (Zero-Shot)} & \textbf{Laya (ModernBERT-395M)} & \textbf{Aegis-S1 (V5 Baseline)} & \textbf{Millennium-Jev (V6 Ours)} \\
 \midrule
-Test Samples ($N$) & 8,657 & 8,657 & 6,871 & \textbf{8,657 (Strictly Disjoint)} \\
+Test Samples ($N$) & 8,657 & \multicolumn{1}{c}{not re-evaluated} & 6,871 (legacy) & \textbf{8,657 (state-disjoint)} \\
 Top-1 Accuracy & 68.60\% & 71.20\% & 80.80\% & \textbf{84.28\%} ($+15.68\%$) \\
 Conformal Coverage ($\alpha=0.05$) & N/A & N/A & 92.85\% & \textbf{94.16\%} (Nominal $95.0\%$) \\
 Tri-Gate Act Rate & N/A & N/A & 68.32\% & \textbf{73.95\%} ($+5.63\%$) \\
@@ -212,10 +212,10 @@ Avg. Prediction Set Size & N/A & N/A & 1.57 & \textbf{1.42} (Sharper) \\
 Single-Query Latency & 98.2\,ms & 22.4\,ms & 52.8\,ms & \textbf{16.2\,ms (C++ SDPA)} \\
 Parallel 4-Query Latency & 1,450\,ms & N/A & 94.5\,ms & \textbf{37.5\,ms} \\
 Positional Bias ($A$-bias) & Severe ($31.4\%$) & None & None & \textbf{None (Symmetric)} \\
-Max Context Window & 32,768 & 512 & 2,048 & \textbf{2,048 (Expandable to 32k)} \\
+Max Context Window & 32,768 & 512 & 2,048 & \textbf{2,048 default; 4,096 hard max} \\
 \bottomrule
 \end{tabular}
-\caption{Comprehensive Benchmark across 8,657 strictly state-disjoint held-out samples. Latency evaluated on NVIDIA RTX 5070 Ti Laptop GPU.}
+\caption{Benchmark summary. The Millennium-Jev split is disjoint by normalized state string. Baseline cells are historical or not re-evaluated under the same protocol; latency was reported on an NVIDIA RTX 5070 Ti Laptop GPU.}
 \label{tab:main_results}
 \end{table*}
 
@@ -223,8 +223,8 @@ Max Context Window & 32,768 & 512 & 2,048 & \textbf{2,048 (Expandable to 32k)} \
 As reported in Table~\ref{tab:main_results}, Millennium-Jev 0.5B establishes superior empirical performance:
 \begin{enumerate}
     \item \textbf{Generalization Accuracy}: Top-1 accuracy reaches \textbf{84.28\%}, outperforming raw zero-shot Qwen2.5-0.5B by $+15.68\%$ and Laya ModernBERT by $+13.08\%$.
-    \item \textbf{Statistical Reliability}: Empirical conformal coverage attains \textbf{94.16\%}, closely matching the theoretical $95.0\%$ threshold under finite-sample bounds.
-    \item \textbf{High-Fidelity Clearance}: Under the Tri-Gate Protocol, the system autonomously clears \textbf{73.95\%} of queries, while maintaining an autonomous precision of \textbf{94.36\%}. Selective risk is strictly bounded to \textbf{5.64\%}.
+    \item \textbf{Statistical Reliability}: Empirical conformal coverage is \textbf{94.16\%} on this test split, below the nominal $95.0\%$ level. The finite-sample theorem is conditional on exchangeability and does not turn this observed value into a guaranteed bound.
+    \item \textbf{High-Fidelity Clearance}: Under the Tri-Gate Protocol, the system autonomously clears \textbf{73.95\%} of queries, while maintaining an empirical autonomous precision of \textbf{94.36\%}. The corresponding 5.64\% selective risk is a test-set statistic, not a strict production guarantee.
 \end{enumerate}
 
 \subsection{Domain-Specific Breakdown}

@@ -17,7 +17,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import numpy as np
 import torch
@@ -32,6 +32,8 @@ from scripts.evaluate_v6_comprehensive import (
     collate_fn,
     EvaluationDataset,
     load_calibration_artifact,
+    dataset_manifest,
+    validate_disjoint_splits,
     sha256_file,
     sha256_model_directory,
     validate_checkpoint_training,
@@ -47,13 +49,22 @@ logging.basicConfig(
 logger = logging.getLogger("ablation_study")
 
 
+ABLATION_SEED = 1729
+
+
+def _cuda_sync(device: str) -> None:
+    """Synchronize only when CUDA is active; keep the benchmark runnable on CPU."""
+    if str(device).startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
 def run_gating_ablation(model, loader, cutoff, q_hat, device):
     """Ablation 1: Gating Policy & Conformal Safety vs Heuristics."""
     logger.info("=== Running Ablation 1: Gating Protocol & Conformal vs. Heuristics ===")
     
     samples_data = []
     
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in loader:
             output = model(
                 batch["input_ids"],
@@ -100,14 +111,27 @@ def run_gating_ablation(model, loader, cutoff, q_hat, device):
     target_act_count = full_tri_acts
     
     # Sort confidences to find matched threshold
-    all_confs = sorted([s["conf"] for s in samples_data], reverse=True)
-    matched_tau = all_confs[target_act_count - 1] if target_act_count <= total else 0.85
+    ranked_samples = sorted(
+        enumerate(samples_data), key=lambda item: (-item[1]["conf"], item[0])
+    )
+    for rank, (_, sample) in enumerate(ranked_samples):
+        sample["confidence_rank"] = rank
+    matched_tau = (
+        ranked_samples[target_act_count - 1][1]["conf"]
+        if target_act_count > 0
+        else 1.0
+    )
+    matched_threshold_count = sum(
+        1 for s in samples_data if s["conf"] >= matched_tau
+    )
     
     policies = {
         "Full Tri-Gate (Ours)": lambda s: s["set_size"] == 1 and s["conf"] >= 0.60 and s["risk"] <= 0.70,
         "Tri-Gate w/o Anomaly Gate": lambda s: s["set_size"] == 1 and s["conf"] >= 0.60,
         "Conformal Singleton Only": lambda s: s["set_size"] == 1,
-        f"Naive Softmax (Matched $\\tau={matched_tau:.3f}$)": lambda s: s["conf"] >= matched_tau,
+        # Rank matching makes ties explicit instead of silently changing the
+        # denominator when several examples share the threshold confidence.
+        f"Naive Softmax (Matched top-N; $\\tau={matched_tau:.3f}$)": lambda s: s["confidence_rank"] < target_act_count,
         "Naive Softmax ($\\tau=0.85$)": lambda s: s["conf"] >= 0.85,
         "Naive Softmax ($\\tau=0.95$)": lambda s: s["conf"] >= 0.95,
         "Unrestricted Argmax ($\\tau=0.0$)": lambda s: True,
@@ -117,6 +141,11 @@ def run_gating_ablation(model, loader, cutoff, q_hat, device):
     for name, predicate in policies.items():
         act_count = 0
         error_count = 0
+        is_conformal_policy = name in {
+            "Full Tri-Gate (Ours)",
+            "Tri-Gate w/o Anomaly Gate",
+            "Conformal Singleton Only",
+        }
         covered_count = sum(1 for s in samples_data if s["is_covered"])
         
         for s in samples_data:
@@ -134,16 +163,28 @@ def run_gating_ablation(model, loader, cutoff, q_hat, device):
             "act_rate": round(act_rate * 100, 2),
             "act_precision": round(act_precision * 100, 2),
             "selective_risk": round(sel_risk * 100, 2),
-            "conformal_coverage": round((covered_count / total) * 100, 2),
+            "conformal_coverage": (
+                round((covered_count / total) * 100, 2)
+                if is_conformal_policy
+                else None
+            ),
+            "coverage_type": "marginal_conformal" if is_conformal_policy else None,
         }
         logger.info(
             f"  {name:38s} | Act: {act_rate*100:5.2f}% | Precision: {act_precision*100:5.2f}% | Risk: {sel_risk*100:5.2f}%"
         )
         
+    results["_meta"] = {
+        "samples": total,
+        "matched_target_act_count": target_act_count,
+        "matched_threshold": round(matched_tau, 8),
+        "matched_threshold_inclusive_count": matched_threshold_count,
+        "matched_threshold_tie_count": max(0, matched_threshold_count - target_act_count),
+    }
     return results
 
 
-def run_pooling_ablation(model, loader, device, max_samples=2000):
+def run_pooling_ablation(model, loader, device, max_samples: Optional[int] = None):
     """Ablation 2: Option Span Mean-Pooling vs Single Token Marker Gathering."""
     logger.info("=== Running Ablation 2: Span Mean-Pooling vs. Single Token Marker ===")
     
@@ -158,11 +199,21 @@ def run_pooling_ablation(model, loader, device, max_samples=2000):
     domain_span = defaultdict(lambda: {"correct": 0, "total": 0})
     domain_marker = defaultdict(lambda: {"correct": 0, "total": 0})
     
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in loader:
-            if total >= max_samples:
+            if max_samples is not None and total >= max_samples:
                 break
-                
+
+            # Slice the final batch so a bounded run reports exactly the
+            # requested number of samples rather than silently overshooting.
+            if max_samples is not None:
+                remaining = max_samples - total
+                if remaining < len(batch["targets"]):
+                    batch = {
+                        key: (value[:remaining] if torch.is_tensor(value) else value[:remaining])
+                        for key, value in batch.items()
+                    }
+
             targets = batch["targets"].to(device)
             c_mask = batch["marker_mask"].to(device)
             
@@ -178,15 +229,16 @@ def run_pooling_ablation(model, loader, device, max_samples=2000):
             p_span = out_span["probs"]
             pred_span = torch.argmax(p_span.masked_fill(~c_mask, -1.0), dim=-1)
             
-            # 2. Single Token Marker Gathering (option_spans=None, fallback to marker_indices)
-            # Use last token index of each option as the marker
-            spans = batch["option_spans"] # [B, K, 2]
-            last_tokens = torch.clamp(spans[:, :, 1] - 1, min=0) # [B, K]
+            # 2. Single Token Marker Gathering.  The tokenizer records the
+            # actual marker position; the span end is a boundary before the
+            # next marker (or sequence end), not a marker token.
+            spans = batch["option_spans"]  # [B, K, 2]
+            marker_indices = batch["marker_indices"].to(device)
             
             out_marker = model(
                 batch["input_ids"],
                 batch["attention_mask"],
-                marker_indices=last_tokens,
+                marker_indices=marker_indices,
                 marker_mask=c_mask,
                 option_spans=None,
                 bidirectional=True,
@@ -217,6 +269,8 @@ def run_pooling_ablation(model, loader, device, max_samples=2000):
                     multi_token_marker_correct += m_ok
                     multi_token_total += 1
                     
+    if total == 0:
+        raise ValueError("Pooling ablation evaluated zero samples")
     results = {
         "overall": {
             "samples": total,
@@ -224,11 +278,12 @@ def run_pooling_ablation(model, loader, device, max_samples=2000):
             "single_marker_acc": round((marker_correct / total) * 100, 2),
             "delta": round(((span_correct - marker_correct) / total) * 100, 2),
         },
-        "multi_token_options": {
+        "long_option_samples": {
             "samples": multi_token_total,
-            "span_pooling_acc": round((multi_token_span_correct / multi_token_total) * 100, 2),
-            "single_marker_acc": round((multi_token_marker_correct / multi_token_total) * 100, 2),
-            "delta": round(((multi_token_span_correct - multi_token_marker_correct) / multi_token_total) * 100, 2),
+            "definition": "sample has at least one candidate span longer than three tokens",
+            "span_pooling_acc": round((multi_token_span_correct / multi_token_total) * 100, 2) if multi_token_total else None,
+            "single_marker_acc": round((multi_token_marker_correct / multi_token_total) * 100, 2) if multi_token_total else None,
+            "delta": round(((multi_token_span_correct - multi_token_marker_correct) / multi_token_total) * 100, 2) if multi_token_total else None,
         },
         "domains": {}
     }
@@ -247,87 +302,126 @@ def run_pooling_ablation(model, loader, device, max_samples=2000):
     return results
 
 
-def run_attention_and_permutation_ablation(model, loader, device, max_samples=1000):
-    """Ablation 3: Bidirectional Attention vs. Causal Attention & Permutation Invariance."""
-    logger.info("=== Running Ablation 3: Bidirectional vs. Causal Attention & Permutation ===")
-    
-    bidir_correct = 0
-    causal_correct = 0
-    bidir_flips = 0
-    causal_flips = 0
-    
-    bidir_a_bias_count = 0
-    causal_a_bias_count = 0
+def run_attention_and_permutation_ablation(
+    model, loader, device, max_samples: Optional[int] = None, seed: int = ABLATION_SEED
+):
+    """Compare attention modes and paired candidate-slot permutations.
+
+    The permutation is applied to the candidate marker/span slots and then
+    mapped back to semantic option ids.  This is a paired test: consistency is
+    measured against the same sample's original prediction, while accuracy is
+    measured against the correspondingly permuted target slot.
+    """
+    logger.info("=== Running Ablation 3: Bidirectional vs. Causal Attention & Paired Permutation ===")
+
+    counts = {
+        "bidirectional": {"correct": 0, "permuted_correct": 0, "consistent": 0, "flips": 0, "first": 0, "permuted_first": 0},
+        "causal": {"correct": 0, "permuted_correct": 0, "consistent": 0, "flips": 0, "first": 0, "permuted_first": 0},
+    }
     total = 0
-    
-    with torch.no_grad():
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+
+    def _run(batch, marker_indices, option_spans, marker_mask, bidirectional):
+        return model(
+            batch["input_ids"],
+            batch["attention_mask"],
+            marker_indices=marker_indices,
+            marker_mask=marker_mask,
+            option_spans=option_spans,
+            bidirectional=bidirectional,
+        )
+
+    with torch.inference_mode():
         for batch in loader:
-            if total >= max_samples:
+            if max_samples is not None and total >= max_samples:
                 break
-                
             targets = batch["targets"].to(device)
+            marker_indices = batch["marker_indices"].to(device)
+            option_spans = batch["option_spans"].to(device)
             c_mask = batch["marker_mask"].to(device)
-            
-            # Forward 1: Bidirectional
-            out_bidir = model(
-                batch["input_ids"],
-                batch["attention_mask"],
-                marker_indices=batch["marker_indices"],
-                marker_mask=c_mask,
-                option_spans=batch["option_spans"],
-                bidirectional=True,
-            )
-            p_bidir = out_bidir["probs"]
-            pred_bidir = torch.argmax(p_bidir.masked_fill(~c_mask, -1.0), dim=-1)
-            
-            # Forward 2: Causal Mask
-            out_causal = model(
-                batch["input_ids"],
-                batch["attention_mask"],
-                marker_indices=batch["marker_indices"],
-                marker_mask=c_mask,
-                option_spans=batch["option_spans"],
-                bidirectional=False,
-            )
-            p_causal = out_causal["probs"]
-            pred_causal = torch.argmax(p_causal.masked_fill(~c_mask, -1.0), dim=-1)
-            
-            for j in range(len(targets)):
-                t = int(targets[j].item())
-                pb = int(pred_bidir[j].item())
-                pc = int(pred_causal[j].item())
-                
-                bidir_correct += int(pb == t)
-                causal_correct += int(pc == t)
-                
-                if pb == 0:
-                    bidir_a_bias_count += 1
-                if pc == 0:
-                    causal_a_bias_count += 1
-                    
-                total += 1
-                
+            batch_size, max_k = c_mask.shape
+
+            permutations = torch.arange(max_k, device=device).unsqueeze(0).repeat(batch_size, 1)
+            permuted_targets = targets.clone()
+            for j in range(batch_size):
+                valid_k = int(c_mask[j].sum().item())
+                if valid_k > 1:
+                    perm = torch.randperm(valid_k, generator=generator).to(device)
+                    # Ensure the paired run is actually a permutation.
+                    if torch.equal(perm, torch.arange(valid_k, device=device)):
+                        perm = torch.roll(perm, shifts=1, dims=0)
+                    permutations[j, :valid_k] = perm
+                    permuted_targets[j] = int((perm == targets[j]).nonzero(as_tuple=False)[0].item())
+
+            permuted_marker_indices = marker_indices.gather(1, permutations)
+            permuted_spans = option_spans.gather(1, permutations.unsqueeze(-1).expand(-1, -1, 2))
+
+            for mode, bidirectional in (("bidirectional", True), ("causal", False)):
+                original = _run(batch, marker_indices, option_spans, c_mask, bidirectional)
+                permuted = _run(batch, permuted_marker_indices, permuted_spans, c_mask, bidirectional)
+                original_pred = torch.argmax(original["probs"].masked_fill(~c_mask, -1.0), dim=-1)
+                permuted_slot_pred = torch.argmax(permuted["probs"].masked_fill(~c_mask, -1.0), dim=-1)
+
+                for j in range(batch_size):
+                    valid_k = int(c_mask[j].sum().item())
+                    if valid_k == 0:
+                        continue
+                    pred = int(original_pred[j].item())
+                    perm_slot = int(permuted_slot_pred[j].item())
+                    semantic_permuted_pred = int(permutations[j, perm_slot].item())
+                    target = int(targets[j].item())
+                    counts[mode]["correct"] += int(pred == target)
+                    counts[mode]["permuted_correct"] += int(semantic_permuted_pred == target)
+                    counts[mode]["consistent"] += int(semantic_permuted_pred == pred)
+                    counts[mode]["flips"] += int(semantic_permuted_pred != pred)
+                    counts[mode]["first"] += int(pred == 0)
+                    counts[mode]["permuted_first"] += int(perm_slot == 0)
+                    total += 1 if mode == "bidirectional" else 0
+
+    if total == 0:
+        raise ValueError("Attention ablation evaluated zero samples")
+
+    def _metrics(stats):
+        return {
+            "top1_acc": round(stats["correct"] / total * 100, 2),
+            "permuted_top1_acc": round(stats["permuted_correct"] / total * 100, 2),
+            "first_index_selection_rate": round(stats["first"] / total * 100, 2),
+            "option_a_selection_rate": round(stats["first"] / total * 100, 2),
+            "permuted_first_index_selection_rate": round(stats["permuted_first"] / total * 100, 2),
+            "permutation_consistency": round(stats["consistent"] / total * 100, 2),
+            "permutation_flip_rate": round(stats["flips"] / total * 100, 2),
+        }
+
     results = {
         "samples": total,
-        "bidirectional": {
-            "top1_acc": round((bidir_correct / total) * 100, 2),
-            "option_a_selection_rate": round((bidir_a_bias_count / total) * 100, 2),
-        },
-        "causal": {
-            "top1_acc": round((causal_correct / total) * 100, 2),
-            "option_a_selection_rate": round((causal_a_bias_count / total) * 100, 2),
-        },
-        "delta_acc": round(((bidir_correct - causal_correct) / total) * 100, 2),
+        "seed": seed,
+        "permutation": "paired random valid-slot permutation; predictions mapped back to original option ids",
+        "bidirectional": _metrics(counts["bidirectional"]),
+        "causal": _metrics(counts["causal"]),
+        "delta_acc": round((counts["bidirectional"]["correct"] - counts["causal"]["correct"]) / total * 100, 2),
     }
-    
-    logger.info(f"  Bidirectional Acc: {results['bidirectional']['top1_acc']}% (A-Rate: {results['bidirectional']['option_a_selection_rate']}%)")
-    logger.info(f"  Causal Mask Acc:    {results['causal']['top1_acc']}% (A-Rate: {results['causal']['option_a_selection_rate']}%)")
-    logger.info(f"  Gain from Bidirectional: +{results['delta_acc']}%")
+    logger.info(
+        "  Bidirectional Acc: %.2f%% | consistency %.2f%% | flip %.2f%%",
+        results["bidirectional"]["top1_acc"],
+        results["bidirectional"]["permutation_consistency"],
+        results["bidirectional"]["permutation_flip_rate"],
+    )
+    logger.info(
+        "  Causal Acc: %.2f%% | consistency %.2f%% | flip %.2f%%",
+        results["causal"]["top1_acc"],
+        results["causal"]["permutation_consistency"],
+        results["causal"]["permutation_flip_rate"],
+    )
     return results
 
 
 def run_systems_operator_ablation(model, tokenizer, device):
-    """Ablation 4: C++ Flash-SDPA vs Explicit 4D Float Attention Mask."""
+    """Ablation 4: fast SDPA path vs explicit 4D-mask path.
+
+    Peak CUDA memory and latency are measured.  The explicit mask size is
+    reported separately as a formula estimate because constructing a large
+    mask solely for accounting would distort the operator benchmark.
+    """
     logger.info("=== Running Ablation 4: Systems Latency & Memory Profile ===")
     
     seq_lengths = [512, 1024, 2048]
@@ -345,36 +439,77 @@ def run_systems_operator_ablation(model, tokenizer, device):
         marker_mask = torch.ones((batch_size, k), dtype=torch.bool, device=device)
         option_spans = torch.tensor([[[45, 55], [95, 105], [145, 155], [195, 205]]], dtype=torch.long, device=device)
         
-        # Warmup
+        # Warm up the native fast path, then measure it explicitly through
+        # fast_forward (the ordinary forward path does not imply fast SDPA).
+        model.enable_fast_bidirectional(True)
         for _ in range(5):
-            _ = model(input_ids, attn_mask, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans, bidirectional=True)
-            
-        torch.cuda.synchronize()
+            with torch.inference_mode():
+                _ = model.fast_forward(input_ids, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans)
+
+        _cuda_sync(device)
         
-        # Measure 1: Flash-SDPA Passthrough (0 KB intermediate mask)
-        torch.cuda.reset_peak_memory_stats()
-        mem_before = torch.cuda.memory_allocated()
+        if str(device).startswith("cuda") and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            mem_before = torch.cuda.memory_allocated()
+        else:
+            mem_before = None
         start = time.perf_counter()
         iters = 50
-        for _ in range(iters):
-            _ = model(input_ids, attn_mask, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans, bidirectional=True)
-        torch.cuda.synchronize()
+        with torch.inference_mode():
+            for _ in range(iters):
+                _ = model.fast_forward(input_ids, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans)
+        _cuda_sync(device)
         sdpa_time = ((time.perf_counter() - start) / iters) * 1000
-        sdpa_peak_ram = (torch.cuda.max_memory_allocated() - mem_before) / (1024 * 1024)
+        sdpa_peak_ram = (
+            (torch.cuda.max_memory_allocated() - mem_before) / (1024 * 1024)
+            if mem_before is not None else None
+        )
+
+        # Measure ordinary bidirectional forward, which materializes the
+        # explicit mask on this implementation.
+        model.enable_fast_bidirectional(False)
+        for _ in range(5):
+            with torch.inference_mode():
+                _ = model(input_ids, attn_mask, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans, bidirectional=True)
+        _cuda_sync(device)
+        if str(device).startswith("cuda") and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            slow_mem_before = torch.cuda.memory_allocated()
+        else:
+            slow_mem_before = None
+        start = time.perf_counter()
+        with torch.inference_mode():
+            for _ in range(iters):
+                _ = model(input_ids, attn_mask, marker_indices=marker_indices, marker_mask=marker_mask, option_spans=option_spans, bidirectional=True)
+        _cuda_sync(device)
+        explicit_time = ((time.perf_counter() - start) / iters) * 1000
+        explicit_peak_ram = (
+            (torch.cuda.max_memory_allocated() - slow_mem_before) / (1024 * 1024)
+            if slow_mem_before is not None else None
+        )
         
-        # Theoretical 4D intermediate mask memory
+        # Formula estimate for the float32 mask; this is not a measured peak.
         explicit_4d_mask_bytes = batch_size * 1 * seq_len * seq_len * 4 # float32
         explicit_4d_mask_kb = explicit_4d_mask_bytes / 1024
         
         benchmarks.append({
             "seq_len": seq_len,
             "sdpa_latency_ms": round(sdpa_time, 2),
+            "explicit_mask_latency_ms": round(explicit_time, 2),
             "sdpa_intermediate_mask_ram_kb": 0.0,
+            "sdpa_mask_memory_kind": "structurally_not_allocated_by_fast_path",
             "explicit_mask_intermediate_ram_kb": round(explicit_4d_mask_kb, 1),
-            "sdpa_peak_total_mb": round(sdpa_peak_ram, 2),
+            "explicit_mask_memory_kind": "estimated_formula_not_measured",
+            "sdpa_peak_total_mb": round(sdpa_peak_ram, 2) if sdpa_peak_ram is not None else None,
+            "explicit_peak_total_mb": round(explicit_peak_ram, 2) if explicit_peak_ram is not None else None,
+            "device_memory_measurement": "cuda_peak_allocated" if mem_before is not None else "unavailable_on_cpu",
         })
-        logger.info(f"  SeqLen={seq_len}: Latency={sdpa_time:.2f}ms | Flash-SDPA Mask RAM=0 KB | Explicit Mask RAM={explicit_4d_mask_kb:.1f} KB")
+        logger.info(
+            "  SeqLen=%d: fast=%.2fms explicit=%.2fms | mask=0 KB structural vs %.1f KB estimated",
+            seq_len, sdpa_time, explicit_time, explicit_4d_mask_kb,
+        )
         
+    model.enable_fast_bidirectional(False)
     return benchmarks
 
 
@@ -383,6 +518,17 @@ def generate_latex_table(ablation_data: Dict[str, Any]) -> str:
     gating = ablation_data["gating"]
     pooling = ablation_data["pooling"]
     attn = ablation_data["attention"]
+
+    def fmt(value):
+        return "--" if value is None else f"{value:.2f}\\%"
+
+    def latex_name(value):
+        return value.replace("&", "\\\\&")
+
+    gating_rows = {name: stats for name, stats in gating.items() if not name.startswith("_")}
+    gating_n = gating.get("_meta", {}).get("samples", "?")
+    pooling_n = pooling.get("overall", {}).get("samples", "?")
+    attention_n = attn.get("samples", "?")
     
     latex_code = []
     latex_code.append("% ==========================================================")
@@ -398,16 +544,16 @@ def generate_latex_table(ablation_data: Dict[str, Any]) -> str:
     latex_code.append("\\textbf{Gating Protocol} & \\textbf{Act Clearance (\\%)} & \\textbf{Act Precision (\\%)} & \\textbf{Selective Risk (\\%)} & \\textbf{Coverage (\\%)} \\\\")
     latex_code.append("\\midrule")
     
-    for name, stats in gating.items():
+    for name, stats in gating_rows.items():
         bold_prefix = "\\textbf{" if "Full Tri-Gate" in name else ""
         bold_suffix = "}" if "Full Tri-Gate" in name else ""
         latex_code.append(
-            f"{bold_prefix}{name}{bold_suffix} & {stats['act_rate']:.2f}\\% & {stats['act_precision']:.2f}\\% & {stats['selective_risk']:.2f}\\% & {stats['conformal_coverage']:.2f}\\% \\\\"
+            f"{bold_prefix}{latex_name(name)}{bold_suffix} & {fmt(stats['act_rate'])} & {fmt(stats['act_precision'])} & {fmt(stats['selective_risk'])} & {fmt(stats['conformal_coverage'])} \\\\"
         )
         
     latex_code.append("\\bottomrule")
     latex_code.append("\\end{tabular}")
-    latex_code.append("\\caption{Ablation 2A: Gating Policy & Trustworthy Decision Making under Conformal Boundaries.}")
+    latex_code.append("\\caption{Ablation 2A: Gating Policy \\& Trustworthy Decision Making under Conformal Boundaries.}")
     latex_code.append("\\label{tab:ablation_gating}")
     latex_code.append("\\end{subtable}")
     latex_code.append("")
@@ -419,9 +565,11 @@ def generate_latex_table(ablation_data: Dict[str, Any]) -> str:
     latex_code.append("\\textbf{Architectural Component} & \\textbf{Configuration} & \\textbf{Top-1 Accuracy} & \\textbf{Multi-Token Acc} & \\textbf{Position $A$-Bias} \\\\")
     latex_code.append("\\midrule")
     
-    # Rows for components
-    latex_code.append(f"\\textbf{{Full Millennium-Jev (V6)}} & Span Pooling + SDPA & \\textbf{{{pooling['overall']['span_pooling_acc']:.2f}\\%}} & \\textbf{{{pooling['multi_token_options']['span_pooling_acc']:.2f}\\%}} & \\textbf{{{attn['bidirectional']['option_a_selection_rate']:.2f}\\%}} \\\\")
-    latex_code.append(f"w/o Span Pooling & Single Token Marker & {pooling['overall']['single_marker_acc']:.2f}\\% ($-{pooling['overall']['delta']:.2f}\\%$) & {pooling['multi_token_options']['single_marker_acc']:.2f}\\% ($-{pooling['multi_token_options']['delta']:.2f}\\%$) & {attn['bidirectional']['option_a_selection_rate']:.2f}\\% \\\\")
+    # Rows for components. Long-option metrics are a sample-level subset
+    # summary, not a token-level accuracy claim.
+    long_options = pooling.get("long_option_samples", pooling.get("multi_token_options", {}))
+    latex_code.append(f"\\textbf{{Full Millennium-Jev (V6)}} & Span Pooling + SDPA & \\textbf{{{pooling['overall']['span_pooling_acc']:.2f}\\%}} & {fmt(long_options.get('span_pooling_acc'))} & \\textbf{{{attn['bidirectional']['option_a_selection_rate']:.2f}\\%}} \\\\")
+    latex_code.append(f"w/o Span Pooling & Single Token Marker & {pooling['overall']['single_marker_acc']:.2f}\\% ($-{pooling['overall']['delta']:.2f}\\%$) & {fmt(long_options.get('single_marker_acc'))} & {attn['bidirectional']['option_a_selection_rate']:.2f}\\% \\\\")
     latex_code.append(f"w/o Bidirectional Attention & Lower-Triangular Causal & {attn['causal']['top1_acc']:.2f}\\% ($-{attn['delta_acc']:.2f}\\%$) & -- & {attn['causal']['option_a_selection_rate']:.2f}\\% ($+{attn['causal']['option_a_selection_rate'] - attn['bidirectional']['option_a_selection_rate']:.2f}\\%$) \\\\")
     
     latex_code.append("\\bottomrule")
@@ -429,7 +577,7 @@ def generate_latex_table(ablation_data: Dict[str, Any]) -> str:
     latex_code.append("\\caption{Ablation 2B: Architectural Component Breakdown on Disjoint Representation Learning.}")
     latex_code.append("\\label{tab:ablation_architecture}")
     latex_code.append("\\end{subtable}")
-    latex_code.append("\\caption{Comprehensive Ablation Studies. All metrics evaluated on strictly state-disjoint test data ($N=8,657$).}")
+    latex_code.append(f"\\caption{{Comprehensive Ablation Studies. Gating $N={gating_n}$; pooling $N={pooling_n}$; paired attention $N={attention_n}$. Results use the verified state-disjoint test split.}}")
     latex_code.append("\\label{tab:main_ablation}")
     latex_code.append("\\end{table*}")
     
@@ -444,16 +592,19 @@ def main():
     test_file = REPO_ROOT / "data" / "disjoint_v6" / "test_v6_disjoint.json"
     calibration_artifact_file = model_dir / "conformal_calibration.json"
     
+    torch.manual_seed(ABLATION_SEED)
+    np.random.seed(ABLATION_SEED)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Starting Ablation Study Suite on {device} ({torch.cuda.get_device_name(0) if device=='cuda' else 'CPU'})...")
     
     # 1. Load Calibration
-    calibrator, calib_artifact, _ = load_calibration_artifact(
+    base_model_sha256 = sha256_model_directory(base_model_path)
+    calibrator, calib_artifact, calibration_data_sha256 = load_calibration_artifact(
         calibration_artifact_file,
         model_dir / "s1_decision_weights.pt",
         calib_file,
         base_model_path=base_model_path,
-        base_model_sha256=sha256_model_directory(base_model_path),
+        base_model_sha256=base_model_sha256,
         train_data_file=train_file,
         test_data_file=test_file,
     )
@@ -465,11 +616,29 @@ def main():
     model, tokenizer, checkpoint, _, _ = load_s1_model(
         model_dir, str(base_model_path), device
     )
+    checkpoint_file = model_dir / "s1_decision_weights.pt"
+    checkpoint_sha256 = sha256_file(checkpoint_file)
+    validate_checkpoint_training(checkpoint, train_file)
+    validate_provenance_pair(checkpoint, calib_artifact.get("metadata", {}))
     model.eval()
     
     # 3. Load Test Data
     samples = load_samples(test_file)
     logger.info(f"Loaded {len(samples)} strictly state-disjoint test samples.")
+    split_samples = {
+        "train": load_samples(train_file),
+        "calibration": load_samples(calib_file),
+        "test": samples,
+    }
+    split_provenance = validate_disjoint_splits(split_samples)
+    data_manifests = {
+        name: dataset_manifest(path, split_samples[name])
+        for name, path in {
+            "train": train_file,
+            "calibration": calib_file,
+            "test": test_file,
+        }.items()
+    }
     
     loader = DataLoader(
         EvaluationDataset(samples),
@@ -480,13 +649,33 @@ def main():
     
     # Run all ablations
     gating_results = run_gating_ablation(model, loader, cutoff, q_hat, device)
-    pooling_results = run_pooling_ablation(model, loader, device, max_samples=2500)
-    attention_results = run_attention_and_permutation_ablation(model, loader, device, max_samples=1500)
+    pooling_results = run_pooling_ablation(model, loader, device, max_samples=None)
+    attention_results = run_attention_and_permutation_ablation(model, loader, device, max_samples=None)
     systems_results = run_systems_operator_ablation(model, tokenizer, device)
     
     ablation_payload = {
+        "schema_version": 2,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "device": torch.cuda.get_device_name(0) if device == "cuda" else "CPU",
+        "seed": ABLATION_SEED,
+        "provenance": {
+            "model_version": checkpoint.get("config", {}).get("model_version", "Aegis-S1-V6"),
+            "checkpoint": {
+                "file": str(checkpoint_file.relative_to(REPO_ROOT)).replace(os.sep, "/"),
+                "sha256": checkpoint_sha256,
+            },
+            "base_model": str(base_model_path),
+            "base_model_sha256": base_model_sha256,
+            "calibration": {
+                "file": str(calibration_artifact_file.relative_to(REPO_ROOT)).replace(os.sep, "/"),
+                "sha256": sha256_file(calibration_artifact_file),
+                "data_sha256": calibration_data_sha256,
+                "q_hat": q_hat,
+                "metadata": calib_artifact.get("metadata", {}),
+            },
+            "data": data_manifests,
+            "split_provenance": split_provenance,
+        },
         "conformal_q_hat": q_hat,
         "conformal_cutoff": cutoff,
         "gating": gating_results,
